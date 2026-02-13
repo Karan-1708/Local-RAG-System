@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.env
+
+# Vector Database (Too large, regenerate locally)
+chroma_db/
+
+# Data (Don't push private PDFs or heavy images)
+data/raw/*
+!data/raw/.gitkeep  # Keeps the folder structure but ignores files inside
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
