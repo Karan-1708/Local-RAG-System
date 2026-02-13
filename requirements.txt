@@ -1,18 +1,30 @@
+# --- Core UI & Framework ---
 streamlit
-chromadb
 langchain
 langchain-community
-langchain-huggingface
-pymupdf
-sentence-transformers
-ollama
-torch
-transformers
-numpy
-scipy
+langchain-ollama
+
+# --- Vector Database & Storage ---
+langchain-chroma
+chromadb
+
+# --- Document Processing & OCR ---
 unstructured[all-docs]
-python-magic-bin
+pytesseract
+pdf2image
+opencv-python
 pillow
-openpyxl
-python-docx
-python-pptx
+
+# --- Embeddings & Re-ranking ---
+sentence-transformers
+torch
+torchvision
+torchaudio
+
+# --- Evaluation & Security Analysis ---
+transformers
+re-search
+
+# --- Utilities ---
+numpy
+python-dotenv
