@@ -1,89 +1,102 @@
 import os
 import sys
-
-# --- CRITICAL FIX: FORCE TESSERACT INTO PATH ---
-# We define the folder path (without 'tesseract.exe')
-tesseract_folder = r'H:\AI_Apps\TesseractOCR'
-
-# We check if the executable actually exists there (sanity check)
-tesseract_exe = os.path.join(tesseract_folder, 'tesseract.exe')
-if not os.path.exists(tesseract_exe):
-    print(f"CRITICAL ERROR: Could not find Tesseract at: {tesseract_exe}")
-    print("Please check if the folder name or drive letter is correct.")
-    sys.exit(1)
-
-# We add this folder to the system PATH for this script's execution only
-if tesseract_folder not in os.environ["PATH"]:
-    os.environ["PATH"] += os.pathsep + tesseract_folder
-
-# Now we import the heavy libraries
 import pytesseract
+import logging
 from typing import List, Dict
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from unstructured.partition.auto import partition
+from src.utils import logger, get_safe_path
+from src.privacy import redact_text
+import config
 
-# We also set the direct pointer for good measure
-pytesseract.pytesseract.tesseract_cmd = tesseract_exe
+# --- OCR Setup ---
+# Set the Tesseract pointer once
+pytesseract.pytesseract.tesseract_cmd = config.TESSERACT_CMD
 
 def clean_text(text: str) -> str:
     """Basic text cleaning."""
+    if not text:
+        return ""
     return " ".join(text.split())
 
-def load_documents(directory_path: str) -> List[Dict]:
-    documents = []
-    
-    if not os.path.exists(directory_path):
-        print(f"Error: Directory '{directory_path}' not found.")
+def process_single_file(file_path: Path) -> List[Dict]:
+    """Processes a single file and returns a list of document objects."""
+    filename = file_path.name
+    try:
+        logger.info(f"Processing: {filename}...")
+        
+        # We use partition with auto OCR if needed
+        # It's better to wrap this in a try-except specifically for unstructured
+        elements = partition(filename=str(file_path))
+        
+        full_text = "\n\n".join([str(el) for el in elements])
+        cleaned_text = clean_text(full_text)
+        
+        if cleaned_text:
+            logger.debug(f"Successfully extracted {len(elements)} elements from {filename}")
+            
+            # --- PII Redaction ---
+            logger.debug(f"Applying PII scrubbing to {filename}...")
+            redacted_text = redact_text(cleaned_text)
+            
+            return [{
+                "text": redacted_text,
+                "source": filename,
+                "page": 1 
+            }]
+        else:
+            logger.warning(f"No text extracted from {filename}")
+            return []
+
+    except Exception as e:
+        logger.error(f"Failed to process {filename}: {str(e)}")
         return []
 
-    print(f"Scanning directory: {directory_path}...")
+def load_documents(directory_path: str) -> List[Dict]:
+    """Loads and processes documents from the specified directory in parallel."""
+    documents = []
+    dir_path = Path(directory_path)
     
+    if not dir_path.exists():
+        logger.error(f"Directory '{directory_path}' not found.")
+        return []
+
     # Supported extensions
     valid_extensions = {
         ".pdf", ".docx", ".doc", ".odt", ".pptx", ".ppt", ".xlsx", ".csv",
         ".txt", ".html", ".htm", ".jpg", ".jpeg", ".png", ".bmp", ".tiff"
     }
 
-    for filename in os.listdir(directory_path):
-        file_path = os.path.join(directory_path, filename)
-        ext = os.path.splitext(filename)[1].lower()
+    # Gather valid files
+    files_to_process = [
+        dir_path / f for f in os.listdir(dir_path) 
+        if (dir_path / f).suffix.lower() in valid_extensions and (dir_path / f).is_file()
+    ]
 
-        if ext not in valid_extensions:
-            continue
+    if not files_to_process:
+        logger.warning(f"No valid documents found in {directory_path}")
+        return []
 
-        try:
-            print(f"Processing: {filename}...", end=" ", flush=True)
-            
-            # The magic function
-            elements = partition(filename=file_path)
-            
-            full_text = "\n\n".join([str(el) for el in elements])
-            cleaned_text = clean_text(full_text)
-            
-            if cleaned_text:
-                documents.append({
-                    "text": cleaned_text,
-                    "source": filename,
-                    "page": 1 
-                })
-                print(f"Success ({len(elements)} elements found)")
-            else:
-                print(f"Warning: No text found in {filename}")
+    logger.info(f"Scanning {len(files_to_process)} documents in parallel...")
 
-        except Exception as e:
-            print(f"\nFAILED to process {filename}")
-            # print(f"Error: {str(e)}") # Uncomment to see full ugly error
+    # Parallel processing using ThreadPoolExecutor
+    # Max workers can be adjusted based on CPU/Memory
+    with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+        future_to_file = {executor.submit(process_single_file, f): f for f in files_to_process}
+        
+        for future in as_completed(future_to_file):
+            res = future.result()
+            if res:
+                documents.extend(res)
 
-    print(f"\nTotal documents successfully loaded: {len(documents)}")
+    logger.info(f"Successfully loaded {len(documents)} document objects.")
     return documents
 
 if __name__ == "__main__":
-    test_data_dir = os.path.join(os.getcwd(), "data", "raw")
-    if not os.path.exists(test_data_dir):
-        os.makedirs(test_data_dir)
-    
-    docs = load_documents(test_data_dir)
-    
+    # Test block
+    import config
+    docs = load_documents(str(config.DATA_DIR))
     if docs:
-        print("\n--- Sample Output ---")
-        print(f"Source: {docs[0]['source']}")
-        print(f"Text Snippet: {docs[0]['text'][:200]}...")
+        print(f"\nTotal: {len(docs)}")
+        print(f"Sample: {docs[0]['source']} - {docs[0]['text'][:100]}...")

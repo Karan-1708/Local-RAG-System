@@ -1,50 +1,41 @@
 from typing import List, Dict
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document  # Updated for modern LangChain
+from langchain_core.documents import Document
+from src.utils import logger
+import config
 
-def split_documents(documents: List[Dict], chunk_size: int = 1000, chunk_overlap: int = 300) -> List[Document]:
+def split_documents(documents: List[Dict], chunk_size: int = None, chunk_overlap: int = None) -> List[Document]:
     """
     Splits a list of raw document dictionaries into smaller chunks.
+    Uses values from config if not provided.
     """
+    size = chunk_size or config.CHUNK_SIZE
+    overlap = chunk_overlap or config.CHUNK_OVERLAP
     
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
+        chunk_size=size,
+        chunk_overlap=overlap,
         length_function=len,
         is_separator_regex=False,
     )
     
     chunked_docs = []
     
-    print(f"Splitting {len(documents)} raw documents...")
+    logger.info(f"Splitting {len(documents)} raw documents with size={size}, overlap={overlap}...")
     
     for doc in documents:
-        raw_text = doc["text"]
-        metadata = {"source": doc["source"], "page": doc.get("page", 1)}
+        try:
+            raw_text = doc["text"]
+            metadata = {
+                "source": doc["source"], 
+                "page": doc.get("page", 1)
+            }
+            
+            # Create Document objects
+            chunks = text_splitter.create_documents([raw_text], metadatas=[metadata])
+            chunked_docs.extend(chunks)
+        except Exception as e:
+            logger.error(f"Failed to split document {doc.get('source', 'Unknown')}: {e}")
         
-        # Create Document objects
-        chunks = text_splitter.create_documents([raw_text], metadatas=[metadata])
-        chunked_docs.extend(chunks)
-        
-    print(f"✔ Created {len(chunked_docs)} chunks.")
+    logger.info(f"✔ Created {len(chunked_docs)} chunks.")
     return chunked_docs
-
-# --- Test Block ---
-if __name__ == "__main__":
-    import os
-    # We must use the module path since we are running with -m
-    from src.ingestion import load_documents 
-    
-    # 1. Load Data
-    data_dir = os.path.join(os.getcwd(), "data", "raw")
-    raw_docs = load_documents(data_dir)
-    
-    # 2. Split Data
-    if raw_docs:
-        final_chunks = split_documents(raw_docs)
-        
-        # 3. Show a sample
-        if final_chunks:
-            print("\n--- Sample Chunk ---")
-            print(f"Content: {final_chunks[0].page_content[:200]}...")
-            print(f"Metadata: {final_chunks[0].metadata}")

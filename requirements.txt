@@ -1,18 +1,46 @@
+# --- Core UI & Framework ---
 streamlit
-chromadb
+nest_asyncio
+ollama
+
+# --- LangChain Ecosystem ---
 langchain
 langchain-community
-langchain-huggingface
-pymupdf
-sentence-transformers
-ollama
-torch
-transformers
-numpy
-scipy
+langchain-ollama
+langchain-openai
+langchain-google-genai
+langchain-anthropic
+langchain-chroma
+
+# --- Vector Database ---
+chromadb
+
+# --- Document Processing & OCR ---
 unstructured[all-docs]
-python-magic-bin
+pytesseract
+pdf2image
+opencv-python
 pillow
-openpyxl
-python-docx
-python-pptx
+
+# --- Embeddings & Re-ranking ---
+sentence-transformers
+rank_bm25
+
+# --- AI Hardware & ML ---
+torch
+torchvision
+torchaudio
+
+# --- Evaluation & Confidence ---
+transformers
+ragas
+
+# --- Privacy & Redaction ---
+presidio-analyzer
+presidio-anonymizer
+spacy
+
+# --- Utilities ---
+numpy<=2.3.0
+python-dotenv
+fpdf2
