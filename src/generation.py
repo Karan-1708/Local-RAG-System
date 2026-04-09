@@ -243,6 +243,12 @@ def query_rag(
         # 8. Post-Processing & Evaluation
         ppl_score = evaluator.calculate_perplexity(full_answer)
         
+        # Qualify Perplexity
+        ppl_label = "Confused"
+        if ppl_score <= 20:   ppl_label = "Excellent"
+        elif ppl_score <= 50: ppl_label = "Good"
+        elif ppl_score <= 100: ppl_label = "Okay"
+        
         # Rich Visual Citations
         citation_data = [
             {
@@ -253,7 +259,10 @@ def query_rag(
         ]
         
         # Deep Evaluation (Optional RAGAS)
-        metrics_string = f"📊 **Confidence Metric (Perplexity):** {ppl_score:.2f}"
+        metrics_string = ""
+        if ppl_score > 0:
+            metrics_string = f"📊 **Perplexity ({ppl_label}):** {ppl_score:.2f}"
+        
         if enable_deep_eval:
             logger.info("Running RAGAS evaluation...")
             context_strings = [doc.page_content for doc in safe_docs]
@@ -266,7 +275,11 @@ def query_rag(
                 api_key=api_key
             )
             if metrics:
-                metrics_string += f"  \n🎯 **RAGAS Faithfulness:** {metrics.get('faithfulness', 0):.2f}  \n🎯 **RAGAS Relevancy:** {metrics.get('answer_relevancy', 0):.2f}"
+                if metrics_string: metrics_string += " | "
+                # Clip metrics to [0, 1] range for user display
+                faith = max(0.0, metrics.get('faithfulness', 0.0))
+                relev = max(0.0, metrics.get('answer_relevancy', 0.0))
+                metrics_string += f"🎯 **Faithfulness:** {faith:.2f} | 🎯 **Relevancy:** {relev:.2f}"
 
         # FINAL METADATA YIELD
         yield {

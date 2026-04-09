@@ -1,3 +1,7 @@
+# --- Local RAG System Requirements ---
+# NOTE: Hardware-specific packages (torch, torchvision, torchaudio) are 
+# handled dynamically by 'install.py' to detect CUDA vs CPU.
+
 # --- Core UI & Framework ---
 streamlit
 nest_asyncio
@@ -11,6 +15,7 @@ langchain-openai
 langchain-google-genai
 langchain-anthropic
 langchain-chroma
+langchain-huggingface
 
 # --- Vector Database ---
 chromadb
@@ -27,12 +32,10 @@ sentence-transformers
 rank_bm25
 
 # --- AI Hardware & ML ---
-torch
-torchvision
-torchaudio
+# Torch is handled dynamically by install.py based on GPU detection.
 
 # --- Evaluation & Confidence ---
-transformers
+transformers<5.0.0
 ragas
 
 # --- Privacy & Redaction ---

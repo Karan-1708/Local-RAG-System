@@ -52,40 +52,89 @@ def reset_database() -> bool:
         logger.error(f"❌ Error during full reset: {e}")
         return False
 
+def delete_document(source_name: str) -> bool:
+    """
+    Deletes all chunks associated with a specific source filename 
+    from ChromaDB and the BM25 corpus.
+    """
+    try:
+        embedding_function = get_embedding_function()
+        db = Chroma(persist_directory=str(config.DB_DIR), embedding_function=embedding_function)
+        
+        # 1. Remove from ChromaDB
+        # We find documents where the metadata 'source' matches the provided name
+        # Note: 'source' in metadata often contains the full path
+        results = db.get()
+        ids_to_delete = []
+        for i, metadata in enumerate(results['metadatas']):
+            if source_name in metadata.get('source', ''):
+                ids_to_delete.append(results['ids'][i])
+        
+        if ids_to_delete:
+            db.delete(ids=ids_to_delete)
+            logger.info(f"🗑️ Deleted {len(ids_to_delete)} chunks for '{source_name}' from ChromaDB.")
+        
+        # 2. Update BM25 Corpus
+        bm25_path = config.DB_DIR / "bm25_corpus.pkl"
+        if bm25_path.exists():
+            with open(bm25_path, "rb") as f:
+                corpus = pickle.load(f)
+            
+            new_corpus = [doc for doc in corpus if source_name not in doc.metadata.get('source', '')]
+            
+            with open(bm25_path, "wb") as f:
+                pickle.dump(new_corpus, f)
+            logger.info(f"✔ BM25 corpus updated (removed chunks for {source_name}).")
+
+        # 3. Delete physical file
+        file_path = config.DATA_DIR / source_name
+        if file_path.exists():
+            os.remove(file_path)
+            logger.info(f"✔ File '{source_name}' deleted from storage.")
+
+        return True
+    except Exception as e:
+        logger.error(f"❌ Failed to delete document '{source_name}': {e}")
+        return False
+
 def save_to_chroma(chunks: List[Document]):
     """
     Saves a list of document chunks to the local ChromaDB and persists a BM25 corpus.
-    Resets the database before saving.
+    Appends to existing data instead of resetting.
     """
     if not chunks:
         logger.warning("No chunks provided to save.")
         return
 
-    # 1. Clear existing data
-    if not reset_database():
-        logger.warning("Proceeding with save despite potential reset failure.")
-
     try:
-        # 2. Get embedding model
+        # 1. Get embedding model
         embedding_function = get_embedding_function()
         
-        # 3. Create/Update Chroma DB
+        # 2. Create/Update Chroma DB
         logger.info(f"Indexing {len(chunks)} chunks into ChromaDB at {config.DB_DIR}...")
         
-        Chroma.from_documents(
-            documents=chunks, 
-            embedding=embedding_function, 
-            persist_directory=str(config.DB_DIR)
+        db = Chroma(
+            persist_directory=str(config.DB_DIR), 
+            embedding_function=embedding_function
         )
+        db.add_documents(chunks)
 
-        # 4. Save chunks for BM25 retrieval
+        # 3. Update BM25 corpus (append)
         bm25_path = config.DB_DIR / "bm25_corpus.pkl"
-        logger.info(f"Saving BM25 corpus to {bm25_path}...")
-        with open(bm25_path, "wb") as f:
-            pickle.dump(chunks, f)
+        existing_corpus = []
+        if bm25_path.exists():
+            with open(bm25_path, "rb") as f:
+                existing_corpus = pickle.load(f)
         
-        logger.info(f"✔ Successfully saved {len(chunks)} chunks to vector store and BM25 corpus.")
+        full_corpus = existing_corpus + chunks
+        
+        logger.info(f"Updating BM25 corpus at {bm25_path}...")
+        with open(bm25_path, "wb") as f:
+            pickle.dump(full_corpus, f)
+        
+        logger.info(f"✔ Successfully added {len(chunks)} chunks to vector store and BM25 corpus.")
 
     except Exception as e:
         logger.error(f"❌ Critical Error saving to database: {e}")
         raise
+

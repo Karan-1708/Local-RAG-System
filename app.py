@@ -11,13 +11,18 @@ import torch
 from pathlib import Path
 from datetime import datetime
 from fpdf import FPDF, XPos, YPos
+from dotenv import load_dotenv
+import logging
+
+# Load environment variables (HF_TOKEN, etc.)
+load_dotenv()
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 nest_asyncio.apply()
 
 from src.ingestion import load_documents
 from src.chunks import split_documents
-from src.vector_store import save_to_chroma, reset_database
+from src.vector_store import save_to_chroma, reset_database, delete_document
 from src.generation import query_rag
 from src.utils import logger, get_safe_path, ensure_directory, get_device, get_hardware_info
 from src.ollama_utils import get_local_models, pull_new_model, is_ollama_running
@@ -161,60 +166,61 @@ def open_folder(path):
 st.set_page_config(page_title="Local RAG: Secure Q&A", page_icon="🛡️", layout="wide")
 
 # =============================================================================
-# CSS + JS  — pinned sidebar header & fixed bottom toolbar
-# =============================================================================
-st.markdown("""
-<script>
-(function () {
-    "use strict";
-    function qs(sel, root) { return (root || document).querySelector(sel); }
-
-    function pinBottomBar() {
-        if (document.getElementById("rag-bottom-bar")) return true;
-        const dropzone = qs('[data-testid="stFileUploaderDropzone"]');
-        if (!dropzone) return false;
-
-        let block = dropzone.closest('[data-testid="stVerticalBlock"]');
-        while (block) {
-            if (qs('[data-testid="stChatInput"]', block)) break;
-            const parent = block.parentElement;
-            block = parent ? parent.closest('[data-testid="stVerticalBlock"]') : null;
-        }
-        if (!block) return false;
-
-        const bar = document.createElement("div");
-        bar.id = "rag-bottom-bar";
-        block.parentNode.insertBefore(bar, block);
-        bar.appendChild(block);
-
-        const sidebar = qs('section[data-testid="stSidebar"]');
-        function syncLeft() {
-            bar.style.left = sidebar ? sidebar.getBoundingClientRect().width + "px" : "0px";
-        }
-        syncLeft();
-        if (sidebar) new ResizeObserver(syncLeft).observe(sidebar);
-        return true;
-    }
-
-    let attempts = 0;
-    function tryInit() {
-        if (!pinBottomBar() && attempts++ < 50) setTimeout(tryInit, 100);
-    }
-    setTimeout(tryInit, 200);
-
-    new MutationObserver(() => { tryInit(); }).observe(document.body, { childList: true, subtree: true });
-})();
-</script>
-""", unsafe_allow_html=True)
-
-# =============================================================================
 # SIDEBAR
 # =============================================================================
+st.markdown("""
+<style>
+    /* Hide the default Streamlit sidebar top padding */
+    [data-testid="stSidebarUserContent"] {
+        padding-top: 0rem !important;
+    }
+    
+    /* Create a pinned, centered header */
+    .sidebar-header {
+        position: sticky;
+        top: 0;
+        background-color: white;
+        z-index: 999;
+        padding-top: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid #f0f2f6;
+        text-align: center;
+        margin-top: -1rem; /* Offset Streamlit's internal spacing */
+    }
+    
+    /* Dark mode support */
+    @media (prefers-color-scheme: dark) {
+        .sidebar-header {
+            background-color: #0e1117;
+            border-bottom: 1px solid #262730;
+        }
+    }
+    
+    .centered-title {
+        text-align: center;
+        font-size: 1.8rem;
+        font-weight: 700;
+        margin-bottom: 0rem;
+        padding-bottom: 0rem;
+    }
+    
+    .centered-caption {
+        text-align: center;
+        font-size: 0.9rem;
+        opacity: 0.7;
+        margin-top: -0.5rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 with st.sidebar:
-    # This container is caught by the CSS "first-child" rule and made sticky
-    with st.container():
-        st.markdown("# 🛡️ Local RAG")
-        st.caption("## Private & Secure AI Reader")
+    # Pinned and Centered Header
+    st.markdown(f"""
+        <div class="sidebar-header">
+            <div class="centered-title">🛡️ Local RAG</div>
+            <div class="centered-caption">Private & Secure AI Reader</div>
+        </div>
+    """, unsafe_allow_html=True)
     
     # Everything below this will scroll
     st.divider()
@@ -333,6 +339,55 @@ with st.sidebar:
     st.sidebar.success(f"**Hardware:** {get_hardware_info()}")
 
     st.divider()
+    st.header("📊 Evaluation")
+    st.info("💡 **How it works:** This uses **RAGAS** (Retrieval-Augmented Generation Assessment) to score the quality of AI answers. It checks **Faithfulness** (no hallucinations) and **Answer Relevancy**.")
+    
+    is_eval_on = active_chat.get("enable_ragas", False)
+    if st.button(
+        "🚀 " + ("Advanced Eval: ON" if is_eval_on else "Standard Eval: OFF"),
+        type="primary" if is_eval_on else "secondary",
+        use_container_width=True
+    ):
+        active_chat["enable_ragas"] = not is_eval_on
+        save_persistent_state(); st.rerun()
+
+    with st.expander("❓ When to use this?"):
+        st.markdown("""
+        - **Turn it ON:** When you need to verify that the AI is accurately citing your documents and not making things up.
+        - **Turn it OFF:** When you just want quick answers and don't need the detailed quality scores.
+        
+        **📊 Understanding Metrics:**
+        - **Faithfulness:** (0 to 1) Higher is better. Checks if the AI's answer is supported by your documents.
+        - **Relevancy:** (0 to 1) Higher is better. Checks if the AI's answer actually addresses your question.
+        - **Perplexity:** (0 to 100+) **Lower is better.**
+            - **0 - 20:** Excellent. Very fluent and confident.
+            - **20 - 50:** Good. Clear and readable.
+            - **50 - 100:** Average. Might have minor oddities.
+            - **100+:** Confused. The AI is likely struggling or hallucinating.
+        
+        *Note: Advanced evaluation takes extra time (30-60s) as it runs multiple quality checks.*
+        """)
+
+    st.divider()
+    st.header("📂 Knowledge Base")
+    
+    # 1. List currently uploaded files
+    if config.DATA_DIR.exists():
+        files = [f for f in os.listdir(config.DATA_DIR) if Path(f).suffix.lower() in ALLOWED_EXTENSIONS]
+        if not files:
+            st.info("No documents uploaded yet.")
+        else:
+            for f_name in files:
+                col1, col2 = st.columns([0.8, 0.2])
+                col1.text(f"📄 {f_name}")
+                if col2.button("🗑️", key=f"del_doc_{f_name}"):
+                    if delete_document(f_name):
+                        st.success(f"Removed {f_name}")
+                        st.rerun()
+                    else:
+                        st.error("Failed to delete.")
+    
+    st.divider()
     st.header("📂 Storage")
     col_f1, col_f2 = st.columns(2)
     if col_f1.button("📁 Uploads",  use_container_width=True): open_folder(str(config.DATA_DIR))
@@ -364,59 +419,49 @@ with st.sidebar:
 # =============================================================================
 active_chat = st.session_state.chats[st.session_state.active_chat_id]
 
-# Scrollable chat history
-history_container = st.container()
+# Scrollable chat history container with fixed height
+# This ensures the bottom section (uploader + input) stays pinned
+history_container = st.container(height=500, border=False)
+
 with history_container:
     for m in active_chat["messages"]:
         with st.chat_message(m["role"], avatar="🛡️" if m["role"] == "assistant" else None):
             st.markdown(m["content"])
             if m.get("metrics"):
-                st.markdown(f"<div style='margin-top:10px;'>{m['metrics']}</div>", unsafe_allow_html=True)
+                st.info(m["metrics"])
             if m.get("citations"):
                 with st.expander("📚 Sources & References"):
                     for c in m["citations"]:
                         st.markdown(f"**{c['source']}**")
                         st.caption(c['snippet'])
 
-# ── Bottom toolbar (JS detects the dropzone and wraps this whole section) ─────
+# ── Bottom Pinned Section ─────
 st.divider()
 
-uploaded_files = st.file_uploader(
-    "📎 Drag & Drop Documents (PDF, DOCX, TXT, CSV, MD, PNG, JPG)",
-    accept_multiple_files=True
-)
+with st.container():
+    uploaded_files = st.file_uploader(
+        "📎 Drag & Drop Documents (PDF, DOCX, TXT, CSV, MD, PNG, JPG)",
+        accept_multiple_files=True
+    )
 
-if uploaded_files:
-    invalid = [f.name for f in uploaded_files if Path(f.name).suffix.lower() not in ALLOWED_EXTENSIONS]
-    if invalid:
-        st.error(f"🚨 Unsupported formats: {', '.join(invalid)}")
-    else:
-        with st.status("🚀 Processing Knowledge Base...", expanded=True) as status:
-            ensure_directory(config.DATA_DIR)
-            for f in uploaded_files:
-                with open(get_safe_path(config.DATA_DIR, f.name), "wb") as file:
-                    file.write(f.getbuffer())
-            docs = load_documents(str(config.DATA_DIR))
-            if docs:
-                chunks = split_documents(docs)
-                save_to_chroma(chunks)
-                status.update(label=f"✅ Knowledge Base Updated ({len(chunks)} chunks)", state="complete")
+    if uploaded_files:
+        invalid = [f.name for f in uploaded_files if Path(f.name).suffix.lower() not in ALLOWED_EXTENSIONS]
+        if invalid:
+            st.error(f"🚨 Unsupported formats: {', '.join(invalid)}")
+        else:
+            with st.status("🚀 Processing Knowledge Base...", expanded=True) as status:
+                ensure_directory(config.DATA_DIR)
+                for f in uploaded_files:
+                    with open(get_safe_path(config.DATA_DIR, f.name), "wb") as file:
+                        file.write(f.getbuffer())
+                docs = load_documents(str(config.DATA_DIR))
+                if docs:
+                    chunks = split_documents(docs)
+                    save_to_chroma(chunks)
+                    status.update(label=f"✅ Knowledge Base Updated ({len(chunks)} chunks)", state="complete")
 
-col_input, col_eval = st.columns([0.88, 0.12], vertical_alignment="bottom")
-
-with col_eval:
-    is_eval_on = active_chat.get("enable_ragas", False)
-    if st.button(
-        "📊 Eval",
-        type="primary" if is_eval_on else "secondary",
-        use_container_width=True,
-        help="Blue = Advanced Evaluation ON | Grey = Standard OFF"
-    ):
-        active_chat["enable_ragas"] = not is_eval_on
-        save_persistent_state(); st.rerun()
-
-with col_input:
-    prompt = st.chat_input("Ask about your architecture, code, or data...")
+# Pinned chat input at root level (automatically stays at the very bottom)
+prompt = st.chat_input("Ask about your architecture, code, or data...")
 
 if prompt:
     if not active_chat["messages"]:

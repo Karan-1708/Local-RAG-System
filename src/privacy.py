@@ -1,22 +1,23 @@
 from presidio_analyzer import AnalyzerEngine
 from presidio_anonymizer import AnonymizerEngine
+import streamlit as st
 from src.utils import logger
 
-# Initialize engines as global singletons to avoid repeated loading
-try:
-    logger.info("Initializing Microsoft Presidio engines...")
-    analyzer = AnalyzerEngine()
-    anonymizer = AnonymizerEngine()
-except Exception as e:
-    logger.error(f"❌ Failed to initialize Presidio engines: {e}")
-    analyzer = None
-    anonymizer = None
+@st.cache_resource
+def get_privacy_engines():
+    """Initializes and caches Presidio engines to avoid repeated loading."""
+    try:
+        logger.info("Initializing Microsoft Presidio engines...")
+        return AnalyzerEngine(), AnonymizerEngine()
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize Presidio engines: {e}")
+        return None, None
 
 def redact_text(text: str) -> str:
     """
     Detects and redacts PII (Personally Identifiable Information) from the given text.
-    Entities include: PERSON, EMAIL_ADDRESS, PHONE_NUMBER, LOCATION, etc.
     """
+    analyzer, anonymizer = get_privacy_engines()
     if not text or not analyzer or not anonymizer:
         return text
 

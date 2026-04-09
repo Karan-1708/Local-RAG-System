@@ -1,6 +1,7 @@
 import torch
 import math
 import os
+import streamlit as st
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from langchain_ollama import ChatOllama
 from src.embeddings import get_embedding_function
@@ -45,7 +46,8 @@ class Evaluator:
             return 0.0
 
         try:
-            encodings = self.tokenizer(text, return_tensors="pt")
+            # Move inputs to the same device as the model
+            encodings = self.tokenizer(text, return_tensors="pt").to(self.model.device)
             input_ids = encodings.input_ids
             
             with torch.no_grad():
@@ -130,5 +132,10 @@ class Evaluator:
             
         return is_bad_match
 
-# --- Singleton Instance ---
-evaluator = Evaluator()
+@st.cache_resource
+def get_evaluator():
+    """Returns a cached instance of the Evaluator."""
+    return Evaluator()
+
+# --- Cached Instance ---
+evaluator = get_evaluator()
