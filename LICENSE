@@ -51,7 +51,9 @@ to license, that you would infringe by using the software.
 
 Noncommercial Purposes
 
-Any noncommercial purpose is a permitted purpose. Commercial use of the Software is strictly prohibited. Commercial use includes, but is not limited to:
+Any noncommercial purpose is a permitted purpose. Commercial use
+of the Software is strictly prohibited. Commercial use includes,
+but is not limited to:
 - Selling the Software or derivatives.
 - Using the Software in paid products or services.
 - Using the Software for financial gain or commercial advantage.
@@ -106,7 +108,9 @@ end immediately.
 External Dependencies Disclaimer
 
 - This license applies only to the code written in this repository.
-- All external libraries, APIs, tools, software, programs, datasets, or other third-party resources used in this project are subject to their own licenses. Users must comply with those licenses separately.
+- All external libraries, APIs, tools, software, programs, datasets,
+  or other third-party resources used in this project are subject to
+  their own licenses. Users must comply with those licenses separately.
 
 No Liability
 
