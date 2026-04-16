@@ -6,7 +6,13 @@ from src.utils import logger
 import config
 
 ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.txt', '.csv', '.md', '.png', '.jpg', '.jpeg'}
-STATE_FILE = config.BASE_DIR / "session_state.json"
+STATE_FILE = config.BASE_DIR / "data" / "session_state.json"
+
+# One-time migration: move session_state.json from old root location to data/
+_old_state = config.BASE_DIR / "session_state.json"
+if _old_state.exists() and not STATE_FILE.exists():
+    import shutil as _shutil
+    _shutil.move(str(_old_state), str(STATE_FILE))
 
 
 def _new_chat() -> dict:
@@ -65,6 +71,23 @@ def init_session_state():
         st.session_state.chats = persisted.get("chats", {})
         st.session_state.api_keys = persisted.get("api_keys", {})
         st.session_state.active_chat_id = persisted.get("active_chat_id")
+        
+        # --- Engine Persistence ---
+        st.session_state.selected_provider = "Ollama"
+        # --------------------------
+
+        # --- Safety Fallbacks ---
+        # Ensure we have at least one chat
+        if not st.session_state.chats:
+            cid, chat = new_chat_entry()
+            st.session_state.chats = {cid: chat}
+            st.session_state.active_chat_id = cid
+        
+        # Ensure active_chat_id is valid and exists in chats
+        if st.session_state.active_chat_id is None or st.session_state.active_chat_id not in st.session_state.chats:
+            st.session_state.active_chat_id = list(st.session_state.chats.keys())[0]
+        # ------------------------
+
         st.session_state.confirm_reset = False
         st.session_state.state_loaded = True
 

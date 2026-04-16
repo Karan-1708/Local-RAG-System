@@ -118,8 +118,6 @@ def delete_chat_data(chat_id: str) -> bool:
     and the uploaded files directory. Called when a chat is deleted from the UI.
     """
     try:
-        embedding_function = get_embedding_function()
-
         # 1. Delete ChromaDB collection via the client API to avoid
         #    Windows file-lock errors on chroma.sqlite3.
         collection = _collection_name(chat_id)

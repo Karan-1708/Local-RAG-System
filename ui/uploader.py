@@ -11,9 +11,17 @@ import config
 
 def render_uploader():
     """Renders the file upload widget and handles ingestion into the chat's vector store."""
+    # Resolve chat_id first so the uploader key is chat-scoped.
+    # A chat-scoped key means Streamlit resets the widget when the active chat
+    # changes, preventing previously uploaded files from being re-ingested into
+    # a different chat on the next rerun.
+    chat_id = st.session_state.active_chat_id
+    chat_data_dir = config.DATA_DIR / chat_id
+
     uploaded_files = st.file_uploader(
         "📎 Drag & Drop Documents (PDF, DOCX, TXT, CSV, MD, PNG, JPG)",
-        accept_multiple_files=True
+        accept_multiple_files=True,
+        key=f"uploader_{chat_id}"
     )
 
     if not uploaded_files:
@@ -23,10 +31,6 @@ def render_uploader():
     if invalid:
         st.error(f"🚨 Unsupported formats: {', '.join(invalid)}")
         return
-
-    # Each chat stores its files in its own subdirectory: data/raw/<chat_id>/
-    chat_id = st.session_state.active_chat_id
-    chat_data_dir = config.DATA_DIR / chat_id
 
     with st.status("🚀 Processing Knowledge Base...", expanded=True) as status:
         try:

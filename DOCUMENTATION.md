@@ -33,14 +33,14 @@ User (Browser)
      │
      ▼
 ┌─────────────────────────────────────────────┐
-│              Streamlit Frontend (ui/)        │
+│              Streamlit Frontend (ui/)       │
 │  main.py → sidebar.py → chat.py             │
 │            uploader.py → state.py           │
 └──────────────────┬──────────────────────────┘
                    │  calls directly
                    ▼
 ┌─────────────────────────────────────────────┐
-│              RAG Core Pipeline (src/)        │
+│              RAG Core Pipeline (src/)       │
 │                                             │
 │  ingestion → chunks → vector_store          │
 │                                             │
@@ -56,9 +56,9 @@ User (Browser)
                    │  also exposed via
                    ▼
 ┌─────────────────────────────────────────────┐
-│              FastAPI Backend (api/)          │
+│              FastAPI Backend (api/)         │
 │  POST /api/v1/query  GET /health            │
-│  X-API-Key header authentication           │
+│  X-API-Key header authentication            │
 └─────────────────────────────────────────────┘
 ```
 

@@ -154,72 +154,81 @@ def query_rag(
             yield "📂 No documents uploaded yet. Please upload files to get started."
             return
 
-        collection_name = f"chat_{chat_id.replace('-', '_')}" if chat_id else "default"
+        # Use the SAME helper as vector_store.py to ensure isolation
+        from src.vector_store import _collection_name
+        if not chat_id:
+            yield "⚠️ No active chat ID. Please select or create a chat first."
+            return
+        collection = _collection_name(chat_id)
+        
         db = Chroma(
             persist_directory=str(config.DB_DIR),
             embedding_function=embedding_function,
-            collection_name=collection_name
+            collection_name=collection
         )
 
-        # Check if this chat has any indexed documents
-        existing = db.get(limit=1)
-        if not existing.get('ids'):
-            yield "📂 No documents uploaded in this chat yet. Upload files using the section below to get started."
-            return
-
         # 3. HYBRID RETRIEVAL (Vector + BM25)
-        logger.info(f"Retrieving chunks for: {safe_query_text[:50]}...")
+        # --- FIX: Check if we have documents in THIS specific chat ---
+        existing = db.get(limit=1)
+        has_docs = True if (existing and existing.get('ids')) else False
         
-        # 3a. Vector Retrieval
-        vector_results_with_scores = db.similarity_search_with_score(safe_query_text, k=config.RETRIEVAL_K * 2)
-        vector_results = [doc for doc, _score in vector_results_with_scores]
-        
-        # 3b. Keyword Retrieval (BM25)
-        bm25_retriever = get_bm25_retriever(chat_id=chat_id, k=config.RETRIEVAL_K * 2)
-        bm25_results = []
-        if bm25_retriever:
-            try:
-                bm25_results = bm25_retriever.invoke(safe_query_text)
-            except AttributeError:
-                bm25_results = bm25_retriever.get_relevant_documents(safe_query_text)
-        
-        # 3c. Fusion (RRF)
-        fused_results = reciprocal_rank_fusion(vector_results, bm25_results)
-        
-        if not fused_results:
-            logger.info("No documents found in any retriever.")
-            yield "No relevant documents found."
+        if not has_docs:
+            logger.info(f"No documents found for chat {chat_id[:8]}.")
+            yield "📂 No documents uploaded in this chat yet. Go to **Knowledge Base** in the sidebar to upload files."
+            yield {"type": "metadata", "metrics": "", "citations": []}
             return
-
-        # 4. Re-Ranking (Cross-Encoder)
-        reranker = get_reranker()
-        pairs = [[safe_query_text, doc.page_content] for doc in fused_results]
-        rerank_scores = reranker.predict(pairs)
-        
-        ranked_results = []
-        for i in range(len(fused_results)):
-            ranked_results.append((fused_results[i], rerank_scores[i]))
-        
-        ranked_results.sort(key=lambda x: x[1], reverse=True)
-        
-        # 5. 🚨 Quarantine Loop 🚨
-        safe_docs = []
-        logger.info("Quarantining chunks for security...")
-        for doc, score in ranked_results:
-            if contains_injection(doc.page_content):
-                continue 
+        else:
+            logger.info(f"Retrieving chunks for: {safe_query_text[:50]}...")
             
-            safe_docs.append(doc)
-            if len(safe_docs) >= config.RETRIEVAL_K:
-                break
+            # 3a. Vector Retrieval
+            vector_results_with_scores = db.similarity_search_with_score(safe_query_text, k=config.RETRIEVAL_K * 2)
+            vector_results = [doc for doc, _score in vector_results_with_scores]
+            
+            # 3b. Keyword Retrieval (BM25)
+            bm25_retriever = get_bm25_retriever(chat_id=chat_id, k=config.RETRIEVAL_K * 2)
+            bm25_results = []
+            if bm25_retriever:
+                try:
+                    bm25_results = bm25_retriever.invoke(safe_query_text)
+                except AttributeError:
+                    bm25_results = bm25_retriever.get_relevant_documents(safe_query_text)
+            
+            # 3c. Fusion (RRF)
+            fused_results = reciprocal_rank_fusion(vector_results, bm25_results)
+            
+            # 4. Re-Ranking (Cross-Encoder)
+            if not fused_results:
+                final_context = "No relevant matches found in the documents."
+                safe_docs = []
+            else:
+                reranker = get_reranker()
+                pairs = [[safe_query_text, doc.page_content] for doc in fused_results]
+                rerank_scores = reranker.predict(pairs)
                 
-        if not safe_docs:
-            logger.error("All retrieved chunks were blocked by security quarantine.")
-            yield "🚫 SECURITY BLOCK: Retrieved documents flagged as potentially malicious."
-            return
+                ranked_results = []
+                for i in range(len(fused_results)):
+                    ranked_results.append((fused_results[i], rerank_scores[i]))
+                
+                ranked_results.sort(key=lambda x: x[1], reverse=True)
+                
+                # 5. 🚨 Quarantine Loop 🚨
+                safe_docs = []
+                logger.info("Quarantining chunks for security...")
+                for doc, score in ranked_results:
+                    if contains_injection(doc.page_content):
+                        continue 
+                    
+                    safe_docs.append(doc)
+                    if len(safe_docs) >= config.RETRIEVAL_K:
+                        break
+                        
+                if not safe_docs:
+                    logger.error("All retrieved chunks were blocked by security quarantine.")
+                    yield "🚫 SECURITY BLOCK: Retrieved documents flagged as potentially malicious."
+                    return
 
-        # 6. Context Preparation
-        final_context = "\n\n".join([doc.page_content for doc in safe_docs])
+                # 6. Context Preparation
+                final_context = "\n\n".join([doc.page_content for doc in safe_docs])
 
         # 7. LLM Generation (Streaming)
         logger.info(f"Generating streaming answer with {provider} model {selected_model}...")

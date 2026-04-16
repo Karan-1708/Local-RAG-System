@@ -88,16 +88,33 @@ def _render_chat_row(cid: str, is_pinned: bool):
 
 def _render_engine() -> tuple[str, str, Optional[str]]:
     st.header("🧠 Engine")
-    provider = st.selectbox("LLM Provider", ["Ollama", "OpenAI", "Google Gemini", "Anthropic"])
+    
+    # 1. Select Provider with persistence
+    providers = ["Ollama", "OpenAI", "Google Gemini", "Anthropic"]
+    provider = st.selectbox(
+        "LLM Provider", 
+        providers, 
+        index=providers.index(st.session_state.selected_provider),
+        key="engine_provider_selector"
+    )
+    st.session_state.selected_provider = provider
 
     if provider == "Ollama":
         if is_ollama_running():
             st.sidebar.markdown("🟢 **Ollama Connected**")
             available_models = get_local_models()
-            selected_model = st.selectbox("Active Model", available_models, index=0)
+            
+            # Use a provider-specific key for model selection
+            selected_model = st.selectbox(
+                "Active Model", 
+                available_models, 
+                index=0,
+                key="model_selector_ollama"
+            )
+            
             with st.expander("⬇️ Pull New Model"):
-                new_m = st.text_input("Model Name", placeholder="phi3")
-                if st.button("Download"):
+                new_m = st.text_input("Model Name", placeholder="phi3", key="pull_model_input")
+                if st.button("Download", key="pull_model_btn"):
                     if new_m:
                         p = st.progress(0, text="Initializing...")
                         status_text = st.empty()
@@ -121,19 +138,36 @@ def _render_engine() -> tuple[str, str, Optional[str]]:
     else:
         saved_key = st.session_state.api_keys.get(provider, "")
         st.sidebar.markdown(f"🟢 **{provider} Ready**" if saved_key else f"🟡 **Waiting for Key**")
+        
         m_list = FRONTIER_PROVIDERS[provider]["models"] + ["Other (Custom Name)"]
-        choice = st.selectbox("Active Model", m_list)
-        selected_model = (
-            st.text_input("Name", value="" if choice == "Other (Custom Name)" else choice)
-            if choice == "Other (Custom Name)" else choice
+        choice = st.selectbox(
+            "Active Model", 
+            m_list, 
+            key=f"model_choice_{provider}"
         )
-        api_key = st.text_input("API Key", value=saved_key, type="password", key=f"key_{provider}")
+        
+        if choice == "Other (Custom Name)":
+            selected_model = st.text_input(
+                "Model ID", 
+                placeholder="e.g. gpt-4-32k",
+                key=f"custom_model_{provider}"
+            )
+        else:
+            selected_model = choice
+
+        api_key = st.text_input(
+            "API Key", 
+            value=saved_key, 
+            type="password", 
+            key=f"api_key_field_{provider}"
+        )
+        
         if api_key != saved_key:
             st.session_state.api_keys[provider] = api_key
             save_persistent_state()
             st.rerun()
 
-    st.sidebar.caption(f"🎯 **Model:** {selected_model}")
+    st.sidebar.caption(f"🎯 **Active:** {selected_model}")
     st.sidebar.success(f"**Hardware:** {get_hardware_info()}")
     return provider, selected_model, api_key
 
@@ -158,11 +192,11 @@ def _render_evaluation(active_chat: dict):
         **📊 Understanding Metrics:**
         - **Faithfulness:** (0 to 1) Higher is better. Checks if the AI's answer is supported by your documents.
         - **Relevancy:** (0 to 1) Higher is better. Checks if the AI's answer actually addresses your question.
-        - **Perplexity:** (0 to 100+) **Lower is better.**
-            - **0 - 20:** Excellent. Very fluent and confident.
-            - **20 - 50:** Good. Clear and readable.
-            - **50 - 100:** Average. Might have minor oddities.
-            - **100+:** Confused. The AI is likely struggling or hallucinating.
+        - **Perplexity:** Lower is better. Scored locally — no API cost.
+            - **≤ 30:** Excellent — very fluent and coherent.
+            - **31 – 80:** Good — clear and readable.
+            - **81 – 160:** Okay — some incoherence or awkward phrasing.
+            - **> 160:** Confused — possibly garbled or off-topic.
 
         *Note: Advanced evaluation takes extra time (30-60s) as it runs multiple quality checks.*
         """)
@@ -215,15 +249,19 @@ def _render_storage():
         c1, c2 = st.columns(2)
         if c1.button("✅ Yes", type="primary", use_container_width=True):
             if reset_database():
-                st.session_state.chats = {}
-                st.session_state.api_keys = {}
-                cid, chat = new_chat_entry()
-                st.session_state.chats[cid] = chat
-                st.session_state.active_chat_id = cid
-                st.session_state.confirm_reset = False
+                # Completely clear the session state to wipe all cached widget values (including API keys)
+                st.session_state.clear()
+                
+                # Delete the physical persistence file
                 if STATE_FILE.exists():
-                    os.remove(STATE_FILE)
-                st.success("Wiped!")
+                    try:
+                        os.remove(STATE_FILE)
+                    except Exception as e:
+                        logger.error(f"Failed to delete state file during reset: {e}")
+                
+                # We don't need to manually re-init here because st.rerun() 
+                # will cause ui/main.py to call init_session_state() from scratch.
+                st.success("✔ System successfully wiped!")
                 st.rerun()
         if c2.button("❌ No", use_container_width=True):
             st.session_state.confirm_reset = False

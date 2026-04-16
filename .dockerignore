@@ -1,0 +1,43 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Runtime data — mounted as volumes in docker-compose
+data/
+chroma_db/
+
+# Secrets and config — mounted as volume in docker-compose
+.env
+
+# Logs
+*.log
+
+# Session state — now lives in data/ (covered by data volume)
+session_state.json
+
+# Git
+.git/
+.gitignore
+
+# Dev tools
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

@@ -6,14 +6,15 @@ services:
       - "8501:8501"   # Streamlit dashboard
       - "8000:8000"   # FastAPI + Swagger UI
     volumes:
-      # Persist uploaded documents and the vector index across container restarts.
-      # These directories are created automatically on first run.
+      # data/ holds three things, all scoped per-chat:
+      #   - data/raw/{chat_id}/      uploaded source files
+      #   - data/session_state.json  persisted chat sessions (names, messages, settings)
+      # Both are preserved across container restarts via this single mount.
       - ./data:/app/data
+      # ChromaDB vector collections (chat_{chat_id}) and BM25 pickles (bm25_{chat_id}.pkl)
       - ./chroma_db:/app/chroma_db
-      # Persist chat session history.
-      # Mounting the parent directory avoids the Docker "directory-instead-of-file"
-      # problem that occurs when bind-mounting a file that doesn't exist yet.
-      - ./.env:/app/.env
+      # Secrets — must exist on the host before running docker-compose up
+      - ./.env:/app/.env:ro
     environment:
       # Point Tesseract at the system binary installed in the container image.
       - TESSERACT_CMD=/usr/bin/tesseract

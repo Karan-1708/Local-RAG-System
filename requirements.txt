@@ -2,26 +2,33 @@
 # NOTE: Hardware-specific packages (torch, torchvision, torchaudio) are 
 # handled dynamically by 'install.py' to detect CUDA vs CPU.
 
-# --- Core UI & Framework ---
+# --- Core UI & Server ---
 streamlit
 nest_asyncio
-pydantic
+ollama
 fastapi
+pydantic
 uvicorn
+python-dotenv
+fpdf2
 
 # --- LangChain Ecosystem ---
 langchain
 langchain-community
+langchain-core
 langchain-ollama
-ollama
 langchain-openai
 langchain-google-genai
 langchain-anthropic
 langchain-chroma
 langchain-huggingface
 
+# --- Vector Database ---
+chromadb
+
 # --- Document Processing & OCR ---
 unstructured[all-docs]
+unstructured-inference
 pytesseract
 pdf2image
 opencv-python
@@ -44,7 +51,6 @@ presidio-analyzer
 presidio-anonymizer
 spacy
 
-# --- Utilities ---
+# --- Version Compatibility Fixes ---
+# Critical: Numba requires numpy <= 2.3.0 on modern Python versions.
 numpy<=2.3.0
-python-dotenv
-fpdf2

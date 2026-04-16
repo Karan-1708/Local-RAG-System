@@ -26,13 +26,14 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 # Internal key to protect FastAPI endpoints
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
 if not INTERNAL_API_KEY:
-    # We allow the app to load for 'install.py' but it should fail for the actual app
-    # Check if we are running the actual application
-    if any(s in str(sys.argv) for s in ["app.py", "api.py"]):
-        raise ValueError("CRITICAL SECURITY ERROR: INTERNAL_API_KEY is not set in the .env file. The application cannot start in an insecure state.")
-    else:
-        # Fallback for setup/migration scripts only
-        INTERNAL_API_KEY = "setup_mode_placeholder"
+    _argv_str = " ".join(sys.argv)
+    _is_setup = any(s in _argv_str for s in ["install.py", "spacy", "pytest"])
+    if not _is_setup:
+        raise ValueError(
+            "CRITICAL SECURITY ERROR: INTERNAL_API_KEY is not set in the .env file. "
+            "The application cannot start in an insecure state."
+        )
+    INTERNAL_API_KEY = "setup_mode_placeholder"
 
 # RAG Parameters
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1000))

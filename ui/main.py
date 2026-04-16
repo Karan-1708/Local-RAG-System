@@ -16,6 +16,15 @@ import streamlit as st
 # Must happen before any src imports
 load_dotenv()
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+# Force standard asyncio event loop to prevent 'ValueError: Can't patch loop of type <class 'uvloop.Loop'>'
+# in environments where uvloop is enabled by default (like some Docker/Uvicorn setups).
+import asyncio
+try:
+    asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+except Exception:
+    pass
+
 nest_asyncio.apply()
 
 from ui.state import init_session_state

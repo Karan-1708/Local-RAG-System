@@ -31,7 +31,7 @@ COPY . .
 # ── Entrypoint script ────────────────────────────────────────────────────────
 # Start FastAPI in the background, then exec Streamlit as PID 1 so that
 # container signals (SIGTERM, SIGINT) are forwarded cleanly.
-RUN printf '#!/bin/bash\nset -e\nuvicorn api.main:app --host 0.0.0.0 --port 8000 &\nexec streamlit run ui/main.py --server.port=8501 --server.address=0.0.0.0\n' \
+RUN printf '#!/bin/bash\nset -e\n# Ensure runtime directories exist (volumes may be empty on first start)\nmkdir -p /app/data/raw /app/chroma_db\n# Initialise session state file so Streamlit can persist chats\nif [ ! -f /app/data/session_state.json ]; then\n  echo "{}" > /app/data/session_state.json\nfi\nuvicorn api.main:app --host 0.0.0.0 --port 8000 &\nexec streamlit run ui/main.py --server.port=8501 --server.address=0.0.0.0\n' \
     > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # ── Ports ────────────────────────────────────────────────────────────────────

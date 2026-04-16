@@ -191,16 +191,51 @@ class Evaluator:
             }
             dataset = Dataset.from_dict(data)
 
-            logger.info("Computing RAGAS metrics (raise_exceptions=False for speed)...")
-            result = evaluate(
-                dataset,
-                metrics=[Faithfulness(), AnswerRelevancy()],
-                llm=eval_llm,
-                embeddings=local_embeddings,
-                raise_exceptions=False,   # return NaN immediately on failure — no retries
-            )
+            # RAGAS 0.2+ requires LLM and embeddings injected directly into each
+            # metric via wrapper classes. Without this, AnswerRelevancy cannot
+            # access embeddings and silently returns NaN.
+            # Fall back to the legacy evaluate() kwargs for RAGAS 0.1.x.
+            try:
+                from ragas.llms import LangchainLLMWrapper
+                from ragas.embeddings import LangchainEmbeddingsWrapper
+                wrapped_llm = LangchainLLMWrapper(eval_llm)
+                wrapped_emb = LangchainEmbeddingsWrapper(local_embeddings)
+                metrics = [
+                    Faithfulness(llm=wrapped_llm),
+                    AnswerRelevancy(llm=wrapped_llm, embeddings=wrapped_emb),
+                ]
+                use_wrappers = True
+            except ImportError:
+                metrics = [Faithfulness(), AnswerRelevancy()]
+                use_wrappers = False
 
-            return result.to_pandas().to_dict('records')[0]
+            # RunConfig adds per-metric retries so a single bad LLM response
+            # doesn't immediately produce NaN — RAGAS retries up to max_retries
+            # times before giving up.
+            try:
+                from ragas import RunConfig
+                run_config = RunConfig(max_retries=3, max_wait=90, timeout=60)
+            except (ImportError, TypeError):
+                run_config = None
+
+            # Run each metric independently so a failure in one does not null
+            # out the other. Results are merged into a single dict at the end.
+            logger.info("Computing RAGAS metrics (independent, raise_exceptions=False)...")
+            combined = {}
+            for metric in metrics:
+                try:
+                    eval_kwargs = {"metrics": [metric], "raise_exceptions": False}
+                    if not use_wrappers:
+                        eval_kwargs["llm"] = eval_llm
+                        eval_kwargs["embeddings"] = local_embeddings
+                    if run_config is not None:
+                        eval_kwargs["run_config"] = run_config
+                    r = evaluate(dataset, **eval_kwargs)
+                    combined.update(r.to_pandas().to_dict('records')[0])
+                except Exception as e:
+                    logger.warning(f"RAGAS {metric.__class__.__name__} failed: {e}")
+
+            return combined
 
         except Exception as e:
             logger.error(f"❌ RAGAS evaluation failed: {e}")

@@ -409,44 +409,298 @@ def ensure_venv():
 # ══════════════════════════════════════════════════════════════════════════════
 
 def check_tesseract():
-    """Check for Tesseract OCR. Warn with install instructions if missing."""
+    """Check for Tesseract OCR. Offer automatic installation if missing."""
     os_name = platform.system()
 
-    # 1. Check system PATH
-    if shutil.which("tesseract"):
+    # ── Helper: verify an exe path and report ────────────────────────────────
+    def _confirm(exe: str):
         try:
-            r = subprocess.run(["tesseract", "--version"], capture_output=True, text=True)
-            ver_line = r.stdout.splitlines()[0] if r.stdout else "found"
-            ok(f"Tesseract OCR on PATH  ({ver_line})")
+            r = subprocess.run([exe, "--version"], capture_output=True, text=True)
+            ver_line = r.stdout.splitlines()[0] if r.stdout else "installed"
+            ok(f"Tesseract OCR ready  ({ver_line})")
         except Exception:
-            ok("Tesseract OCR found on PATH")
+            ok("Tesseract OCR ready")
+
+    # ── 1. Already on PATH ────────────────────────────────────────────────────
+    if shutil.which("tesseract"):
+        _confirm("tesseract")
         return
 
-    # 2. Check common install paths (Windows)
+    # ── 2. Check common install paths (Windows) ───────────────────────────────
     if os_name == "Windows":
         common_paths = [
             Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
-            Path(r"H:\AI_Apps\TesseractOCR\tesseract.exe"),
+            Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
         ]
         for p in common_paths:
             if p.exists():
-                ok(f"Tesseract OCR found at {p}")
-                info(f"Set TESSERACT_CMD={p} in your .env file if OCR fails.")
+                ok(f"Tesseract OCR found at  {p}")
+                _write_tesseract_cmd_to_env(str(p))
                 return
 
-    # 3. Not found — provide platform-specific install instructions
-    warn("Tesseract OCR not found. Image/PDF OCR will be unavailable.")
+    # ── 3. Not found — offer automatic installation ───────────────────────────
+    warn("Tesseract OCR not found.  OCR on scanned PDFs and image files will be unavailable.")
+    print(f"\n  {C.WHITE}Would you like to install Tesseract OCR now?{C.RESET}")
+    choice = _ask_choice(
+        "Install Tesseract OCR",
+        [
+            f"Yes — install automatically  {C.DIM}(recommended){C.RESET}",
+            f"No  — skip for now  {C.DIM}(OCR features will be disabled){C.RESET}",
+        ],
+        default=0,
+    )
+
+    if choice == 1:
+        warn("Skipping Tesseract. You can install it later and re-run setup.")
+        info("Windows : https://github.com/UB-Mannheim/tesseract/wiki")
+        info("Mac     : brew install tesseract")
+        info("Linux   : sudo apt-get install tesseract-ocr")
+        return
+
+    _install_tesseract(os_name)
+
+
+def _install_tesseract(os_name: str):
+    """Attempt platform-specific Tesseract installation."""
+
     if os_name == "Windows":
-        info("Install from: https://github.com/UB-Mannheim/tesseract/wiki")
-        info("Then set TESSERACT_CMD=<path>\\tesseract.exe in your .env file.")
+        _install_tesseract_windows()
+
     elif os_name == "Darwin":
-        info("Install via Homebrew:  brew install tesseract")
+        if shutil.which("brew"):
+            info("Installing Tesseract via Homebrew…")
+            r = subprocess.run(["brew", "install", "tesseract"], capture_output=False)
+            if r.returncode == 0:
+                ok("Tesseract installed via Homebrew")
+            else:
+                warn("Homebrew install failed. Install manually: brew install tesseract")
+        else:
+            warn("Homebrew not found. Install it from https://brew.sh, then run: brew install tesseract")
+
     else:
-        info("Install via apt:  sudo apt-get install tesseract-ocr")
-    info("OCR features will be disabled until Tesseract is installed.")
+        # Linux — try apt, then dnf
+        if shutil.which("apt-get"):
+            info("Installing Tesseract via apt…")
+            r = subprocess.run(
+                ["sudo", "apt-get", "install", "-y", "tesseract-ocr"],
+                capture_output=False
+            )
+            if r.returncode == 0:
+                ok("Tesseract installed via apt")
+            else:
+                warn("apt install failed. Try manually: sudo apt-get install tesseract-ocr")
+        elif shutil.which("dnf"):
+            info("Installing Tesseract via dnf…")
+            r = subprocess.run(
+                ["sudo", "dnf", "install", "-y", "tesseract"],
+                capture_output=False
+            )
+            if r.returncode == 0:
+                ok("Tesseract installed via dnf")
+            else:
+                warn("dnf install failed. Try manually: sudo dnf install tesseract")
+        else:
+            warn("No supported package manager found (apt/dnf).")
+            warn("Install manually: sudo apt-get install tesseract-ocr")
+
+
+def _install_tesseract_windows():
+    """Download and silently install Tesseract on Windows."""
+    import urllib.request
+    import tempfile
+
+    # Try winget first (available on Windows 10 1809+ and Windows 11)
+    if shutil.which("winget"):
+        info("Installing Tesseract via winget…")
+        r = subprocess.run(
+            ["winget", "install", "--id", "UB-Mannheim.TesseractOCR", "--silent", "--accept-package-agreements", "--accept-source-agreements"],
+            capture_output=False
+        )
+        if r.returncode == 0:
+            ok("Tesseract installed via winget")
+            # winget installs to the default path
+            default = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+            if default.exists():
+                _write_tesseract_cmd_to_env(str(default))
+            return
+        warn("winget install failed — falling back to direct download.")
+
+    # Direct download from UB-Mannheim (latest stable Windows 64-bit installer)
+    INSTALLER_URL = (
+        "https://github.com/UB-Mannheim/tesseract/releases/download/"
+        "v5.5.0.20241111/tesseract-ocr-w64-setup-5.5.0.20241111.exe"
+    )
+    install_dir = Path(r"C:\Program Files\Tesseract-OCR")
+    installer_path = Path(tempfile.gettempdir()) / "tesseract_setup.exe"
+
+    info(f"Downloading Tesseract installer…")
+    try:
+        urllib.request.urlretrieve(INSTALLER_URL, installer_path)
+    except Exception as e:
+        warn(f"Download failed: {e}")
+        warn("Install manually from: https://github.com/UB-Mannheim/tesseract/wiki")
+        return
+
+    info("Running installer silently (may require UAC prompt)…")
+    r = subprocess.run(
+        [str(installer_path), "/S", f"/D={install_dir}"],
+        capture_output=False
+    )
+
+    try:
+        installer_path.unlink()
+    except Exception:
+        pass
+
+    if r.returncode == 0 and (install_dir / "tesseract.exe").exists():
+        ok(f"Tesseract installed at  {install_dir}")
+        _write_tesseract_cmd_to_env(str(install_dir / "tesseract.exe"))
+    else:
+        warn("Installer exited with an error or was cancelled.")
+        warn("If UAC was denied, re-run setup as Administrator.")
+        warn("Or install manually: https://github.com/UB-Mannheim/tesseract/wiki")
+
+
+def _write_tesseract_cmd_to_env(exe_path: str):
+    """Add or update TESSERACT_CMD in the .env file."""
+    env_file = Path(".env")
+    if not env_file.exists():
+        return
+    try:
+        lines = env_file.read_text(encoding="utf-8").splitlines()
+        new_lines = []
+        found = False
+        for line in lines:
+            if line.startswith("TESSERACT_CMD="):
+                new_lines.append(f"TESSERACT_CMD={exe_path}")
+                found = True
+            else:
+                new_lines.append(line)
+        if not found:
+            new_lines.append(f"TESSERACT_CMD={exe_path}")
+        env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        ok(f"TESSERACT_CMD written to .env  →  {exe_path}")
+    except Exception as e:
+        warn(f"Could not update .env: {e}")
+        info(f"Add this line manually to your .env:  TESSERACT_CMD={exe_path}")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  STEP 5 — DEPENDENCIES  (PyTorch + app packages)
+#  STEP 5 — OLLAMA CHECK / INSTALL
+# ══════════════════════════════════════════════════════════════════════════════
+
+def check_ollama():
+    """Check for Ollama. Offer automatic installation if missing."""
+    os_name = platform.system()
+
+    # ── Already installed ────────────────────────────────────────────────────
+    if shutil.which("ollama"):
+        try:
+            r = subprocess.run(["ollama", "--version"], capture_output=True, text=True)
+            ver = r.stdout.strip() or "found"
+            ok(f"Ollama found  ({ver})")
+        except Exception:
+            ok("Ollama found")
+        return
+
+    # ── Not found — ask ───────────────────────────────────────────────────────
+    warn("Ollama not found.  Local model inference will be unavailable.")
+    info("Ollama is only required if you want to run models locally (e.g. Llama 3, Mistral).")
+    info("You can skip this and use OpenAI / Google Gemini / Anthropic instead.")
+    print()
+    choice = _ask_choice(
+        "Install Ollama",
+        [
+            f"Yes — install Ollama now  {C.DIM}(recommended for local inference){C.RESET}",
+            f"No  — skip  {C.DIM}(use cloud providers only){C.RESET}",
+        ],
+        default=0,
+    )
+
+    if choice == 1:
+        warn("Skipping Ollama. Cloud providers (OpenAI / Gemini / Anthropic) will still work.")
+        return
+
+    _install_ollama(os_name)
+
+
+def _install_ollama(os_name: str):
+    """Platform-specific Ollama installation."""
+    import urllib.request
+    import tempfile
+
+    if os_name == "Windows":
+        INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
+        installer_path = Path(tempfile.gettempdir()) / "OllamaSetup.exe"
+
+        info("Downloading Ollama installer for Windows…")
+        try:
+            urllib.request.urlretrieve(INSTALLER_URL, installer_path)
+        except Exception as e:
+            warn(f"Download failed: {e}")
+            warn("Install manually from: https://ollama.com/download")
+            return
+
+        info("Running Ollama installer (silent)…")
+        r = subprocess.run(
+            [str(installer_path), "/SILENT", "/NORESTART"],
+            capture_output=False
+        )
+        try:
+            installer_path.unlink()
+        except Exception:
+            pass
+
+        if r.returncode == 0:
+            ok("Ollama installed successfully")
+            info("Run 'ollama pull llama3:8b' to download your first model.")
+        else:
+            warn("Installer may have been cancelled or requires a restart.")
+            warn("If the install was blocked, try running: https://ollama.com/download")
+
+    elif os_name == "Darwin":
+        # macOS — try Homebrew cask first, fall back to curl installer
+        if shutil.which("brew"):
+            info("Installing Ollama via Homebrew…")
+            r = subprocess.run(["brew", "install", "--cask", "ollama"], capture_output=False)
+            if r.returncode == 0:
+                ok("Ollama installed via Homebrew")
+                info("Run 'ollama pull llama3:8b' to download your first model.")
+                return
+            warn("Homebrew install failed — falling back to official installer.")
+
+        info("Downloading Ollama via official install script…")
+        r = subprocess.run(
+            ["curl", "-fsSL", "https://ollama.com/install.sh"],
+            capture_output=True, text=True
+        )
+        if r.returncode != 0:
+            warn("Could not fetch install script. Install manually: https://ollama.com/download")
+            return
+        r2 = subprocess.run(["sh"], input=r.stdout, text=True, capture_output=False)
+        if r2.returncode == 0:
+            ok("Ollama installed")
+            info("Run 'ollama pull llama3:8b' to download your first model.")
+        else:
+            warn("Install script failed. Install manually: https://ollama.com/download")
+
+    else:
+        # Linux — official one-liner
+        info("Installing Ollama via official install script…")
+        r = subprocess.run(
+            "curl -fsSL https://ollama.com/install.sh | sh",
+            shell=True, capture_output=False
+        )
+        if r.returncode == 0:
+            ok("Ollama installed")
+            info("Run 'ollama pull llama3:8b' to download your first model.")
+        else:
+            warn("Install script failed.")
+            warn("Try manually: curl -fsSL https://ollama.com/install.sh | sh")
+            warn("Or visit: https://ollama.com/download")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  STEP 6 — DEPENDENCIES  (PyTorch + app packages)
 # ══════════════════════════════════════════════════════════════════════════════
 
 # All app packages (torch handled separately below)
@@ -471,6 +725,7 @@ APP_PACKAGES = [
     "langchain-huggingface",
     # Document Processing & OCR
     "unstructured[all-docs]",
+    "unstructured-inference",
     "pytesseract",
     "pdf2image",
     "opencv-python",
@@ -707,7 +962,7 @@ def verify_install(sys_info: dict):
 #  MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
 
-TOTAL_STEPS = 6
+TOTAL_STEPS = 7
 
 def setup():
     banner()
@@ -724,10 +979,13 @@ def setup():
     section(4, TOTAL_STEPS, "Checking Tesseract OCR")
     check_tesseract()
 
-    section(5, TOTAL_STEPS, "Installing Dependencies")
+    section(5, TOTAL_STEPS, "Checking Ollama")
+    check_ollama()
+
+    section(6, TOTAL_STEPS, "Installing Dependencies")
     install_dependencies(sys_info)
 
-    section(6, TOTAL_STEPS, "Setting Up Configuration")
+    section(7, TOTAL_STEPS, "Setting Up Configuration")
     ensure_env_file()
 
     print(f"\n{C.BOLD}{C.MAGENTA}  Verifying installation…{C.RESET}")
