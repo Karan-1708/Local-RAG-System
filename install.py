@@ -3,6 +3,7 @@ import sys
 import platform
 import os
 import shutil
+from pathlib import Path
 
 def run_command(command, is_install=True):
     """Executes a pip command. Handles both install and uninstall."""
@@ -30,15 +31,64 @@ def detect_hardware():
             return 'mps'
     return 'cpu'
 
+def get_vram():
+    """Attempts to get NVIDIA VRAM in GB."""
+    try:
+        output = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.total', '--format=csv,noheader,nounits'], encoding='utf-8')
+        return int(output.strip()) / 1024
+    except:
+        return 0
+
+def check_system_resources():
+    """Check RAM and Disk Space."""
+    print("\n--- 📊 Resource Validation ---")
+    
+    # 1. Disk Space
+    total, used, free = shutil.disk_usage(".")
+    free_gb = free // (2**30)
+    print(f"Free Disk Space: {free_gb} GB")
+    if free_gb < 10:
+        print("⚠️  WARNING: Low disk space. You may run out of space for model weights.")
+
+    # 2. System RAM
+    total_ram_gb = 0
+    try:
+        if platform.system() == "Windows":
+            out = subprocess.check_output(['wmic', 'ComputerSystem', 'get', 'TotalPhysicalMemory'], encoding='utf-8')
+            total_ram_gb = int(out.split()[1]) // (1024**3)
+        elif platform.system() == "Darwin":
+            out = subprocess.check_output(['sysctl', '-n', 'hw.memsize'], encoding='utf-8')
+            total_ram_gb = int(out.strip()) // (1024**3)
+        else:
+            with open('/proc/meminfo', 'r') as f:
+                for line in f:
+                    if "MemTotal" in line:
+                        total_ram_gb = int(line.split()[1]) // (1024**2)
+                        break
+        print(f"System RAM:     {total_ram_gb} GB")
+        if total_ram_gb < 8:
+            print("⚠️  WARNING: Low RAM. High-parameter models (e.g. Llama3-70B) will be unstable.")
+    except:
+        print("⚠️  Could not determine System RAM.")
+
+    # 3. VRAM (NVIDIA)
+    vram = get_vram()
+    if vram > 0:
+        print(f"GPU VRAM:       {vram:.1f} GB")
+        if vram < 6:
+            print("⚠️  WARNING: Limited VRAM. Consider using 'Ollama' quantized models (4-bit).")
+    
+    print("------------------------------\n")
+
 def check_system_dependencies():
     """Check for external tools like Tesseract."""
-    print("\nChecking System dependencies...")
+    print("Checking System dependencies...")
     tesseract_exists = shutil.which("tesseract") is not None
     if tesseract_exists:
         print("✅ Tesseract OCR: Found")
     else:
-        print("⚠️  Tesseract OCR: NOT FOUND in PATH.")
-        print("   -> Image/PDF OCR may fail. Download from: https://github.com/UB-Mannheim/tesseract/wiki")
+        print("⚠️  Tesseract OCR: NOT FOUND.")
+        print("   -> Image/PDF OCR may fail. Install: https://github.com/UB-Mannheim/tesseract/wiki")
 
 def setup():
     # 1. Environment Detection
@@ -47,18 +97,16 @@ def setup():
     os_name = platform.system()
     hardware = detect_hardware()
 
-    print(f"--- 🛡️ Advanced System Validation ---")
+    print(f"--- 🛡️ Advanced System Optimization ---")
     print(f"Python:   {py_version}")
     print(f"OS:       {os_name}")
     print(f"Hardware: {hardware.upper()}")
-    print(f"--------------------------------------\n")
+    print(f"--------------------------------------")
 
-    # 2. Version Validation
-    if py_major < 3 or (py_major == 3 and py_minor < 10):
-        print("❌ ERROR: This application requires Python 3.10 or higher.")
-        sys.exit(1)
+    # 2. Resource Check
+    check_system_resources()
 
-    # 3. Handle Conflicts (Uninstall old logic)
+    # 3. Handle Conflicts
     print("Preparing clean environment...")
     if hardware in ['cuda', 'mps']:
         run_command("torch torchvision torchaudio", is_install=False)
@@ -69,21 +117,18 @@ def setup():
 
     print("\nStep 2: Installing hardware-optimized ML core...")
     if hardware == 'cuda':
+        # Using cu124 as stable default for Python 3.11-3.13
         run_command("torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124")
-    elif hardware == 'mps':
-        run_command("torch torchvision torchaudio")
     else:
         run_command("torch torchvision torchaudio")
 
     print("\nStep 3: Installing LangChain Ecosystem...")
-    # Pinning specific versions known to be stable with Python 3.10-3.13
     run_command("langchain langchain-community langchain-ollama langchain-openai langchain-google-genai langchain-anthropic langchain-chroma langchain-huggingface")
 
     print("\nStep 4: Installing Document Processing & OCR...")
     run_command("unstructured[all-docs] pytesseract pdf2image opencv-python pillow")
 
     print("\nStep 5: Installing Analytics & Evaluation...")
-    # Pin transformers to avoid the v5 __path__ bug
     run_command("transformers<5.0.0 ragas sentence-transformers rank_bm25")
 
     print("\nStep 6: Installing Privacy & Redaction...")
@@ -91,7 +136,6 @@ def setup():
     run_command("spacy download en_core_web_sm")
 
     print("\nStep 7: Fixing Library Conflicts...")
-    # Important: Many AI libs break with Numpy 2.0+ on older Python versions
     if py_minor >= 12:
         run_command("numpy<=2.3.0")
     else:
