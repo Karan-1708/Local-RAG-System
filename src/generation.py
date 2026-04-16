@@ -1,4 +1,5 @@
 import re
+import math
 import logging
 import functools
 from typing import List, Tuple, Optional, Dict, Generator, Any
@@ -99,19 +100,16 @@ def contains_injection(text: str) -> bool:
     Scans a document chunk for sophisticated prompt injection patterns.
     """
     patterns = [
-        r"(ignore|disregard|skip|overwrite)\s+(all\s+)?(previous|existing|system)?\s+(instructions|prompts|rules)",
+        r"(ignore|disregard|skip|overwrite)\s+(all\s+)?(previous|existing|system)\s+(instructions|prompts|rules)",
         r"system\s+(override|notice|reset)",
-        r"(you\s+are|become|act\s+as)\s+(now\s+)?(a|the)\s+",
+        r"(become|act\s+as)\s+(now\s+)?(a|the)\s+",
         r"administrative\s+session",
-        r"(reply|answer|respond)\s+as\s+",
-        r"mode\s+enabled",
-        r"important\s+instruction",
-        r"\[(system|admin|user)\]",
-        r"new\s+rule",
-        r"stop\s+summarizing",
-        r"tell\s+me\s+a\s+joke",
+        r"(reply|answer|respond)\s+only\s+as\s+",
+        r"jailbreak",
+        r"developer\s+mode\s+enabled",
+        r"\[(system|admin)\]\s*:",
         r"print\s+the\s+system\s+prompt",
-        r"reveal\s+your\s+instructions",
+        r"reveal\s+your\s+(instructions|system\s+prompt)",
         r"===\s+IMPORTANT\s+UPDATE\s+===",
         r"<instruction>",
         r"\[INTERNAL\s+MEMO\]"
@@ -124,30 +122,50 @@ def contains_injection(text: str) -> bool:
     return False
 
 def query_rag(
-    query_text: str, 
-    enable_deep_eval: bool = False, 
+    query_text: str,
+    chat_id: str = None,
+    enable_deep_eval: bool = False,
     provider: str = "Ollama",
     selected_model: str = config.LLM_MODEL,
     api_key: str = None,
-    chat_history: List[Tuple[str, str]] = []
+    chat_history: Optional[List[Tuple[str, str]]] = None
 ) -> Generator[Any, None, None]:
     """
     Executes the RAG pipeline as a streaming generator with conversational memory.
+    Each chat_id has its own isolated ChromaDB collection and BM25 corpus.
     """
+    if chat_history is None:
+        chat_history = []
+
+    if not query_text or not query_text.strip():
+        yield "⚠️ Please enter a question."
+        return
+
     try:
         # 1. 🛡️ PII REDACTION (User Prompt)
         logger.info("Scrubbing user prompt for PII...")
         safe_query_text = redact_text(query_text)
         if safe_query_text != query_text:
             logger.info("Privacy filter altered the user prompt to protect PII.")
-        
-        # 2. Prepare DB
+
+        # 2. Prepare per-chat DB
         embedding_function = get_embedding_function()
         if not config.DB_DIR.exists():
-            yield "❌ Database not initialized. Please upload documents first."
+            yield "📂 No documents uploaded yet. Please upload files to get started."
             return
 
-        db = Chroma(persist_directory=str(config.DB_DIR), embedding_function=embedding_function)
+        collection_name = f"chat_{chat_id.replace('-', '_')}" if chat_id else "default"
+        db = Chroma(
+            persist_directory=str(config.DB_DIR),
+            embedding_function=embedding_function,
+            collection_name=collection_name
+        )
+
+        # Check if this chat has any indexed documents
+        existing = db.get(limit=1)
+        if not existing.get('ids'):
+            yield "📂 No documents uploaded in this chat yet. Upload files using the section below to get started."
+            return
 
         # 3. HYBRID RETRIEVAL (Vector + BM25)
         logger.info(f"Retrieving chunks for: {safe_query_text[:50]}...")
@@ -157,7 +175,7 @@ def query_rag(
         vector_results = [doc for doc, _score in vector_results_with_scores]
         
         # 3b. Keyword Retrieval (BM25)
-        bm25_retriever = get_bm25_retriever(k=config.RETRIEVAL_K * 2)
+        bm25_retriever = get_bm25_retriever(chat_id=chat_id, k=config.RETRIEVAL_K * 2)
         bm25_results = []
         if bm25_retriever:
             try:
@@ -231,8 +249,21 @@ def query_rag(
         try:
             # STREAMING GENERATOR Logic
             for chunk in model.stream(prompt):
-                # Anthropic/OpenAI/Google use slightly different chunk structures
-                content = getattr(chunk, 'content', str(chunk))
+                # Normalize chunk content across providers:
+                #   Ollama / OpenAI / Anthropic → chunk.content is a str
+                #   Google Gemini              → chunk.content is a list of
+                #                                content-part dicts, e.g.
+                #                                [{'type': 'text', 'text': '…'}]
+                content = getattr(chunk, 'content', '')
+                if isinstance(content, list):
+                    content = "".join(
+                        part.get('text', '') if isinstance(part, dict) else str(part)
+                        for part in content
+                    )
+                elif not isinstance(content, str):
+                    content = str(content)
+                if not content:
+                    continue
                 full_answer += content
                 yield content
         except Exception as e:
@@ -243,11 +274,11 @@ def query_rag(
         # 8. Post-Processing & Evaluation
         ppl_score = evaluator.calculate_perplexity(full_answer)
         
-        # Qualify Perplexity
+        # Qualify Perplexity (calibrated for gpt2 on technical content)
         ppl_label = "Confused"
-        if ppl_score <= 20:   ppl_label = "Excellent"
-        elif ppl_score <= 50: ppl_label = "Good"
-        elif ppl_score <= 100: ppl_label = "Okay"
+        if ppl_score <= 30:   ppl_label = "Excellent"
+        elif ppl_score <= 80: ppl_label = "Good"
+        elif ppl_score <= 160: ppl_label = "Okay"
         
         # Rich Visual Citations
         citation_data = [
@@ -275,11 +306,28 @@ def query_rag(
                 api_key=api_key
             )
             if metrics:
-                if metrics_string: metrics_string += " | "
-                # Clip metrics to [0, 1] range for user display
-                faith = max(0.0, metrics.get('faithfulness', 0.0))
-                relev = max(0.0, metrics.get('answer_relevancy', 0.0))
-                metrics_string += f"🎯 **Faithfulness:** {faith:.2f} | 🎯 **Relevancy:** {relev:.2f}"
+                # Some providers (e.g. Gemini) cause RAGAS output-parser failures
+                # for individual metrics, which RAGAS handles internally by setting
+                # that metric to NaN.  Guard here so we never display "nan".
+                def _safe(key):
+                    val = metrics.get(key)
+                    if val is None or (isinstance(val, float) and math.isnan(val)):
+                        logger.warning(f"RAGAS metric '{key}' could not be computed (NaN) — skipping display.")
+                        return None
+                    return max(0.0, float(val))
+
+                faith = _safe('faithfulness')
+                relev = _safe('answer_relevancy')
+
+                parts = []
+                if faith is not None:
+                    parts.append(f"🎯 **Faithfulness:** {faith:.2f}")
+                if relev is not None:
+                    parts.append(f"🎯 **Relevancy:** {relev:.2f}")
+                if parts:
+                    if metrics_string:
+                        metrics_string += " | "
+                    metrics_string += " | ".join(parts)
 
         # FINAL METADATA YIELD
         yield {

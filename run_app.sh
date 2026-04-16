@@ -135,7 +135,7 @@ section 3 $TOTAL "Starting API Backend"
 info "Launching FastAPI backend on http://localhost:8000 ..."
 info "API docs available at http://localhost:8000/docs"
 
-python -m uvicorn api:app --host 0.0.0.0 --port 8000 &
+python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 
 # Trap Ctrl+C and exit to cleanly shut down the backend
@@ -177,6 +177,6 @@ ok "Opening Local RAG System in your browser..."
 info "(Press Ctrl+C in this terminal to stop all services)"
 echo ""
 
-streamlit run app.py
+streamlit run ui/main.py
 
 # _cleanup runs automatically on exit via trap

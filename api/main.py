@@ -12,6 +12,7 @@ logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").add
     _SuppressScriptRunContext()
 )
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Body, Security, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
@@ -20,15 +21,17 @@ from src.generation import query_rag
 from src.utils import log_startup_info
 import config
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log_startup_info()
+    yield
+
 app = FastAPI(
     title="🛡️ Local RAG System API",
     description="Standardized REST API for private technical Q&A. PROGRAMMATIC ACCESS REQUIRES X-API-Key header.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
-
-@app.on_event("startup")
-async def startup_event():
-    log_startup_info()
 
 # --- SECURITY ---
 API_KEY_NAME = "X-API-Key"
@@ -44,6 +47,7 @@ async def get_api_key(api_key: str = Security(api_key_header)):
 
 class QueryRequest(BaseModel):
     query_text: str
+    chat_id: Optional[str] = None
     provider: str = "Ollama"
     model_name: str = config.LLM_MODEL
     api_key: Optional[str] = None
@@ -62,7 +66,7 @@ class QueryResponse(BaseModel):
 async def run_query(request: QueryRequest = Body(...)):
     """
     Executes a RAG query through the pipeline. REQUIRES X-API-Key header.
-    
+
     - **query_text**: Your technical question.
     - **provider**: Ollama, OpenAI, Google Gemini, or Anthropic.
     - **model_name**: The specific model ID (e.g., llama3, gpt-4o).
@@ -70,14 +74,13 @@ async def run_query(request: QueryRequest = Body(...)):
     - **enable_deep_eval**: If true, runs RAGAS scoring.
     """
     try:
-        # Since query_rag is a generator, we collect all results
         full_answer = ""
         metrics = ""
         citations = []
-        
-        # Execute generator
+
         for chunk in query_rag(
             request.query_text,
+            chat_id=request.chat_id,
             enable_deep_eval=request.enable_deep_eval,
             provider=request.provider,
             selected_model=request.model_name,
@@ -88,15 +91,11 @@ async def run_query(request: QueryRequest = Body(...)):
             elif isinstance(chunk, dict) and chunk.get("type") == "metadata":
                 metrics = chunk.get("metrics", "")
                 citations = [Citation(**c) for c in chunk.get("citations", [])]
-        
+
         if not full_answer:
             raise HTTPException(status_code=500, detail="Generation failed to return content.")
 
-        return QueryResponse(
-            answer=full_answer,
-            metrics=metrics,
-            citations=citations
-        )
+        return QueryResponse(answer=full_answer, metrics=metrics, citations=citations)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

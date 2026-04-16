@@ -15,7 +15,7 @@ if %errorlevel% neq 0 (
 :: 2. Launch API backend in a new window
 echo.
 echo [3/4] Starting API backend...
-start "Local RAG - API" cmd /k "call .venv\Scripts\activate.bat && python -m uvicorn api:app --host 0.0.0.0 --port 8000"
+start "Local RAG - API" cmd /k "call .venv\Scripts\activate.bat && python -m uvicorn api.main:app --host 0.0.0.0 --port 8000"
 
 :: 3. Wait for backend to initialise
 echo [INFO] Waiting for backend to start...
@@ -25,7 +25,7 @@ timeout /t 5 /nobreak >nul
 echo.
 echo [4/4] Launching dashboard...
 echo [INFO] Opening Local RAG System in your browser...
-call .venv\Scripts\activate.bat && streamlit run app.py
+call .venv\Scripts\activate.bat && streamlit run ui/main.py
 
 echo.
 echo [INFO] Application closed.

@@ -3,16 +3,23 @@ services:
     build: .
     container_name: local-rag-system
     ports:
-      - "8501:8501" # Streamlit
-      - "8000:8000" # FastAPI (Swagger)
+      - "8501:8501"   # Streamlit dashboard
+      - "8000:8000"   # FastAPI + Swagger UI
     volumes:
-      # Persist data across container restarts
+      # Persist uploaded documents and the vector index across container restarts.
+      # These directories are created automatically on first run.
       - ./data:/app/data
       - ./chroma_db:/app/chroma_db
-      - ./session_state.json:/app/session_state.json
+      # Persist chat session history.
+      # Mounting the parent directory avoids the Docker "directory-instead-of-file"
+      # problem that occurs when bind-mounting a file that doesn't exist yet.
       - ./.env:/app/.env
     environment:
-      # Allow the container to communicate with Ollama running on the host machine
+      # Point Tesseract at the system binary installed in the container image.
+      - TESSERACT_CMD=/usr/bin/tesseract
+      # Allow the container to reach Ollama running on the host machine.
+      # On Linux, extra_hosts maps host.docker.internal → host-gateway.
+      # On Docker Desktop (Mac/Windows), this hostname works out of the box.
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
     extra_hosts:
       - "host.docker.internal:host-gateway"

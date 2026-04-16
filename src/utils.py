@@ -42,7 +42,7 @@ def get_safe_path(base_dir: Path, filename: str) -> Path:
     target_path = (base_dir / safe_filename).resolve()
     
     # Ensure the resolved path is still under the base directory
-    if not str(target_path).startswith(str(base_dir.resolve())):
+    if not target_path.is_relative_to(base_dir.resolve()):
         raise ValueError(f"Security Warning: Attempted path traversal to {target_path}")
     
     return target_path
@@ -89,7 +89,6 @@ def clear_directory(path: Path) -> bool:
             if item.is_file():
                 item.unlink()
             elif item.is_dir():
-                import shutil
                 shutil.rmtree(item)
         
         logger.info(f"✔ Directory {path} cleared.")
