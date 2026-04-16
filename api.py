@@ -1,8 +1,23 @@
+import logging
+
+# Suppress Streamlit's ScriptRunContext warning that fires when RAG/RAGAS
+# modules are imported outside of a Streamlit session (i.e. from the API server).
+# A Filter is used instead of setLevel because Streamlit resets its own loggers
+# during initialisation, which would override a simple level change.
+class _SuppressScriptRunContext(logging.Filter):
+    def filter(self, record):
+        return "ScriptRunContext" not in record.getMessage()
+
+logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").addFilter(
+    _SuppressScriptRunContext()
+)
+
 from fastapi import FastAPI, HTTPException, Body, Security, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 from typing import List, Optional
 from src.generation import query_rag
+from src.utils import log_startup_info
 import config
 
 app = FastAPI(
@@ -10,6 +25,10 @@ app = FastAPI(
     description="Standardized REST API for private technical Q&A. PROGRAMMATIC ACCESS REQUIRES X-API-Key header.",
     version="1.0.0"
 )
+
+@app.on_event("startup")
+async def startup_event():
+    log_startup_info()
 
 # --- SECURITY ---
 API_KEY_NAME = "X-API-Key"

@@ -5,7 +5,7 @@
 # --- Core UI & Framework ---
 streamlit
 nest_asyncio
-ollama
+pydantic
 fastapi
 uvicorn
 
@@ -13,14 +13,12 @@ uvicorn
 langchain
 langchain-community
 langchain-ollama
+ollama
 langchain-openai
 langchain-google-genai
 langchain-anthropic
 langchain-chroma
 langchain-huggingface
-
-# --- Vector Database ---
-chromadb
 
 # --- Document Processing & OCR ---
 unstructured[all-docs]
@@ -39,6 +37,7 @@ rank_bm25
 # --- Evaluation & Confidence ---
 transformers<5.0.0
 ragas
+datasets
 
 # --- Privacy & Redaction ---
 presidio-analyzer

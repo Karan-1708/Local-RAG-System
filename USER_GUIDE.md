@@ -6,7 +6,7 @@ Welcome! This guide is for users who want to use the Local RAG application witho
 
 ## 🛠️ Prerequisites
 Before starting, ensure you have these two things installed:
-1.  **Python 3.10 or 3.11:** [Download from Python.org](https://www.python.org/downloads/) (Check the box "Add Python to PATH" during installation).
+1.  **Python 3.11 - 3.13:** [Download from Python.org](https://www.python.org/downloads/) (Check the box "Add Python to PATH" during installation).
 2.  **Ollama:** [Download from Ollama.com](https://ollama.com/) (This runs the AI models on your computer).
 
 ---
@@ -21,38 +21,46 @@ Download the project folder from the repository and extract it to your computer.
 *   **Mac / Linux:** Open your terminal in the project folder and type `bash run_app.sh`.
 
 ### 3. What happens next?
-A black window (terminal) will open. It will automatically:
-*   Create a safe space for the app to live (Virtual Environment).
-*   Check if you have a GPU (like NVIDIA) to make the AI faster.
-*   Install all necessary tools.
-*   **Launch the Dashboard** in your web browser.
+A terminal window will open. It will automatically:
+*   Validate your Python version and install 3.12 if needed.
+*   Let you choose an existing virtual environment or create a new one.
+*   Optimize your hardware (NVIDIA GPU, Apple Silicon, or CPU).
+*   Launch both the **Secure Backend API** and the **Interactive Dashboard**.
 
 ---
 
 ## 🖥️ Using the Dashboard
 
-### 1. Uploading Documents
-At the bottom of the screen, you will see a **"Drag & Drop"** area. 
-*   Drop your PDFs, Word docs, or Text files here.
-*   Wait for the green checkmark ✅. The AI now "knows" your files.
+### 1. Instant Document Ingestion
+You can now drag and drop files directly into the chat area.
+*   **Supported Formats:** PDF, DOCX, TXT, MD, PNG, JPG, CSV.
+*   **Live Processing:** The system will immediately extract, chunk, and index your file. You'll see a green checkmark once it's ready.
 
-### 2. Managing your Knowledge
-In the **Sidebar** (left side), you can see a list of your uploaded files.
-*   Use the 🗑️ icon to make the AI "forget" a specific document.
+### 2. Chat Management (Sidebar)
+*   **Multiple Chats:** Use the **➕ New Conversation** button to start fresh topics.
+*   **Rename & Pin:** Use the ⚙️ settings icon next to any chat to rename it or pin it (up to 3) to the top.
+*   **PDF Export:** Download a professional technical report of any conversation for your records.
 
-### 3. Chatting
-Simply type your question in the chat box at the bottom.
-*   The AI will search your documents first.
-*   It will show you **Sources & References** so you can verify the answer.
+### 3. Intelligent Chatting
+Type your questions at the bottom. The AI remembers the context of your current conversation, even if you switch providers.
+*   **Streaming:** Answers appear in real-time as they are generated.
+*   **Citations:** Click the **📄 Technical Sources** expander to see exactly which parts of your documents were used.
 
-### 4. Advanced Evaluation
-If you want to know if the AI is "hallucinating" (lying), turn on **Advanced Eval** in the sidebar. 
-*   It will give the AI a grade for **Faithfulness** and **Relevancy**.
-*   *Note: This makes the AI a bit slower as it double-checks its own work.*
+### 4. Evaluation Control
+Click the **📊 icon** next to the chat box to toggle **Deep Eval (RAGAS)** for that specific conversation. 
+*   It scores the AI on **Faithfulness** and **Relevancy**.
+*   The system uses the same provider (e.g., GPT-4o or Llama 3) to grade the answer.
+
+---
+
+## 📂 Data Management & Safety
+Located at the very bottom of the sidebar:
+*   **Open Folders:** Use the **📁 Uploads** or **🗄️ Database** buttons to inspect your local storage.
+*   **Nuclear Reset:** The **Full Reset** button now requires a two-step confirmation to prevent accidental data loss. It wipes everything, including chat history and API keys.
 
 ---
 
 ## ❓ Troubleshooting
-*   **App is slow:** Make sure you have a GPU and that `install.py` detected it.
-*   **OCR Error:** If the app can't read images, you may need to install [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki).
-*   **Ollama Error:** Ensure the Ollama app is running in your system tray (near the clock).
+*   **Ollama Error:** Ensure the Ollama app is running in your system tray.
+*   **API Key Error:** If using Frontier models, ensure your key is correct. The app will provide a specific warning if authentication fails.
+*   **OCR failure:** Ensure [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) is installed and the path is set in your `.env`.

@@ -1,97 +1,182 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-echo "🛡️ Local RAG System: Starter"
-echo "-----------------------------------"
+# ============================================================
+#  Local RAG System — Mac / Linux Launcher
+#  Checks Python, runs setup engine, launches backend+frontend
+# ============================================================
 
-# 1. Validate Python Version (3.11 - 3.13)
-PYTHON_CMD="python3"
-if ! command -v $PYTHON_CMD &> /dev/null; then
-    PYTHON_CMD="python"
+set -euo pipefail
+
+# ── Colours ──────────────────────────────────────────────────
+RESET="\033[0m"
+BOLD="\033[1m"
+RED="\033[91m"
+GREEN="\033[92m"
+YELLOW="\033[93m"
+BLUE="\033[94m"
+CYAN="\033[96m"
+WHITE="\033[97m"
+
+ok()   { echo -e "  ${GREEN}✔${RESET}  $*"; }
+info() { echo -e "  ${CYAN}ℹ${RESET}  $*"; }
+warn() { echo -e "  ${YELLOW}⚠${RESET}  $*"; }
+err()  { echo -e "  ${RED}✘${RESET}  ${RED}$*${RESET}"; }
+
+fatal() {
+    err "$*"
+    echo -e "\n${RED}${BOLD}  Setup cannot continue. Fix the issue above and try again.${RESET}\n"
+    exit 1
+}
+
+section() {
+    local n=$1 total=$2 title=$3
+    echo -e "\n${BOLD}${BLUE}[${n}/${total}]${RESET}  ${WHITE}${title}${RESET}"
+}
+
+# ── Banner ───────────────────────────────────────────────────
+echo -e "
+${CYAN}${BOLD}+----------------------------------------------------------+
+|       🛡️  Local RAG System  |  Mac / Linux Launcher      |
++----------------------------------------------------------+${RESET}
+"
+
+TOTAL=4
+
+# ============================================================
+#  PHASE 1 — Locate / install Python 3.11+
+# ============================================================
+section 1 $TOTAL "Checking Python Installation"
+
+MIN_MAJOR=3
+MIN_MINOR=11
+
+_find_python() {
+    for cmd in python3 python; do
+        if command -v "$cmd" &>/dev/null; then
+            local ver
+            ver=$("$cmd" --version 2>&1 | awk '{print $2}')
+            local major minor
+            major=$(echo "$ver" | cut -d. -f1)
+            minor=$(echo "$ver" | cut -d. -f2)
+            if [ "$major" -gt "$MIN_MAJOR" ] || \
+               ([ "$major" -eq "$MIN_MAJOR" ] && [ "$minor" -ge "$MIN_MINOR" ]); then
+                echo "$cmd"
+                return 0
+            fi
+        fi
+    done
+    return 1
+}
+
+PYTHON_CMD=""
+if ! PYTHON_CMD=$(_find_python 2>/dev/null); then
+    warn "Python ${MIN_MAJOR}.${MIN_MINOR}+ not found — attempting to install..."
+
+    OS_TYPE="$(uname -s)"
+    if [ "$OS_TYPE" = "Darwin" ]; then
+        if command -v brew &>/dev/null; then
+            info "Installing Python 3.12 via Homebrew..."
+            brew install python@3.12
+            export PATH="$(brew --prefix python@3.12)/bin:$PATH"
+        else
+            fatal "Homebrew not found.\nInstall it from https://brew.sh, then re-run this script.\nOr install Python manually from https://www.python.org/downloads/"
+        fi
+    elif [ "$OS_TYPE" = "Linux" ]; then
+        if command -v apt-get &>/dev/null; then
+            info "Installing Python 3.12 via apt..."
+            sudo apt-get update -qq
+            sudo apt-get install -y python3.12 python3.12-venv python3.12-dev
+        elif command -v dnf &>/dev/null; then
+            info "Installing Python 3.12 via dnf..."
+            sudo dnf install -y python3.12
+        else
+            fatal "Could not auto-install Python.\nPlease install Python ${MIN_MAJOR}.${MIN_MINOR}+ from https://www.python.org/downloads/"
+        fi
+    fi
+
+    if ! PYTHON_CMD=$(_find_python 2>/dev/null); then
+        fatal "Python ${MIN_MAJOR}.${MIN_MINOR}+ still not found after install attempt.\nPlease install it manually and re-run this script."
+    fi
 fi
 
-VERSION=$($PYTHON_CMD -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-MAJOR=$(echo $VERSION | cut -d. -f1)
-MINOR=$(echo $VERSION | cut -d. -f2)
+PY_VER=$("$PYTHON_CMD" --version 2>&1 | awk '{print $2}')
+ok "Python $PY_VER found at $(command -v $PYTHON_CMD)"
 
-VALID=0
-if [ "$MAJOR" == "3" ] && [ "$MINOR" -ge 11 ] && [ "$MINOR" -le 13 ]; then
-    VALID=1
+# ============================================================
+#  PHASE 2 — Run the Python setup engine (install.py)
+# ============================================================
+section 2 $TOTAL "Running Setup Engine"
+
+if [ ! -f "install.py" ]; then
+    fatal "install.py not found. Make sure you are running this script from the project root folder."
 fi
 
-if [ "$VALID" == "0" ]; then
-    echo "[WARNING] Current Python ($VERSION) is not supported (Requires 3.11 - 3.13)."
-    
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        echo "[INFO] Attempting to install Python 3.12 via Homebrew..."
-        brew install python@3.12
-    else
-        echo "[INFO] Attempting to install Python 3.12 via apt..."
-        sudo apt-get update && sudo apt-get install -y python3.12 python3.12-venv
-    fi
-    
-    if [ $? -ne 0 ]; then
-        echo "[ERROR] Automated installation failed. Please install Python 3.12 manually."
-        exit 1
-    fi
-    echo "[SUCCESS] Python 3.12 installed. Please restart this script."
+"$PYTHON_CMD" install.py
+if [ $? -ne 0 ]; then
+    echo ""
+    err "Setup failed. Review the messages above."
+    warn "If the problem persists, delete the .venv folder and try again:"
+    warn "  rm -rf .venv && bash run_app.sh"
+    exit 1
+fi
+
+# ── Activate the venv that install.py created ────────────────
+if [ ! -f ".venv/bin/activate" ]; then
+    fatal "Virtual environment was not created. Please re-run this script."
+fi
+
+source .venv/bin/activate
+
+# ============================================================
+#  PHASE 3 — Start API backend
+# ============================================================
+section 3 $TOTAL "Starting API Backend"
+
+info "Launching FastAPI backend on http://localhost:8000 ..."
+info "API docs available at http://localhost:8000/docs"
+
+python -m uvicorn api:app --host 0.0.0.0 --port 8000 &
+BACKEND_PID=$!
+
+# Trap Ctrl+C and exit to cleanly shut down the backend
+_cleanup() {
+    echo -e "\n\n${CYAN}  ℹ${RESET}  Shutting down backend server (PID $BACKEND_PID)..."
+    kill "$BACKEND_PID" 2>/dev/null || true
+    wait "$BACKEND_PID" 2>/dev/null || true
+    echo -e "${GREEN}  ✔${RESET}  All services stopped. Goodbye!"
     exit 0
-fi
+}
+trap _cleanup INT TERM EXIT
 
-# 2. Discover Virtual Environments
-echo "[INFO] Scanning for virtual environments..."
-ENVS=($(find . -maxdepth 1 -type d -name ".*venv*"))
-TARGET_ENV=".venv"
-
-if [ ${#ENVS[@]} -gt 0 ]; then
-    echo "[INFO] Found existing environment(s): ${ENVS[*]}"
-    echo
-    echo "1. Use existing [${ENVS[0]}]"
-    echo "2. Create a new environment alongside"
-    echo "3. Exit"
-    echo
-    read -p "Select an option (1-3): " CHOICE
-    
-    if [ "$CHOICE" == "1" ]; then
-        TARGET_ENV="${ENVS[0]}"
-    elif [ "$CHOICE" == "2" ]; then
-        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-        TARGET_ENV=".venv_$TIMESTAMP"
-        echo "[INFO] Creating new environment: $TARGET_ENV..."
-        $PYTHON_CMD -m venv $TARGET_ENV
-    else
-        exit 0
+# Poll until backend is ready (up to 15 s)
+info "Waiting for backend to be ready..."
+READY=0
+for i in $(seq 1 15); do
+    if curl -s --max-time 1 http://localhost:8000/health >/dev/null 2>&1 ||
+       curl -s --max-time 1 http://localhost:8000/      >/dev/null 2>&1; then
+        READY=1
+        break
     fi
+    sleep 1
+done
+
+if [ "$READY" -eq 1 ]; then
+    ok "Backend is ready"
 else
-    echo "[INFO] No environment found. Creating standard .venv..."
-    $PYTHON_CMD -m venv .venv
+    warn "Backend health check timed out — it may still be loading."
+    warn "If the app doesn't work, check if port 8000 is already in use."
 fi
 
-# 3. Activate Environment
-echo "[INFO] Activating environment: $TARGET_ENV..."
-source $TARGET_ENV/bin/activate
+# ============================================================
+#  PHASE 4 — Launch Streamlit frontend (foreground)
+# ============================================================
+section 4 $TOTAL "Launching Dashboard"
 
-# 4. Run Smart Installer
-if [ ! -f "$TARGET_ENV/installed.flag" ]; then
-    echo "[INFO] Installing/Optimizing dependencies..."
-    python3 install.py
-    if [ $? -eq 0 ]; then
-        echo "Done" > "$TARGET_ENV/installed.flag"
-    else
-        echo "[ERROR] Installation failed."
-        exit 1
-    fi
-fi
+echo ""
+ok "Opening Local RAG System in your browser..."
+info "(Press Ctrl+C in this terminal to stop all services)"
+echo ""
 
-# 5. Setup .env
-if [ ! -f ".env" ]; then
-    echo "[INFO] Creating .env from example..."
-    cp .env.example .env
-fi
-
-# 6. Launch
-echo "[SUCCESS] Starting Local RAG Suite..."
-echo "[INFO] Launching API Server (Swagger at http://localhost:8000/docs)..."
-uvicorn api:app --host 0.0.0.0 --port 8000 > api.log 2>&1 &
-
-echo "[INFO] Launching Streamlit UI..."
 streamlit run app.py
+
+# _cleanup runs automatically on exit via trap

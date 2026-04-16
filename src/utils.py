@@ -1,5 +1,7 @@
 import logging
 import os
+import platform
+import shutil
 import sys
 from pathlib import Path
 from typing import Optional
@@ -96,6 +98,77 @@ def clear_directory(path: Path) -> bool:
         logger = logging.getLogger("LocalRAG")
         logger.error(f"❌ Failed to clear directory {path}: {e}")
         return False
+
+def _get_ram_gb() -> str:
+    import subprocess
+    try:
+        if platform.system() == "Windows":
+            # PowerShell CIM (works on Windows 10/11; wmic is deprecated/removed)
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "(Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize"],
+                capture_output=True, text=True
+            )
+            if r.returncode == 0 and r.stdout.strip().isdigit():
+                return f"{round(int(r.stdout.strip()) / (1024 * 1024), 2)} GB"
+        elif platform.system() == "Darwin":
+            r = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True)
+            if r.returncode == 0:
+                return f"{round(int(r.stdout.strip()) / 1024 ** 3, 2)} GB"
+        else:
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if "MemTotal" in line:
+                        return f"{round(int(line.split()[1]) / (1024 * 1024), 2)} GB"
+    except Exception:
+        pass
+    return "Unknown"
+
+
+def log_startup_info():
+    """Logs system environment info at application startup."""
+    _log = logging.getLogger("LocalRAG")
+
+    os_name    = platform.system()
+    os_release = platform.release()
+    arch       = platform.architecture()[0]
+    ram        = _get_ram_gb()
+
+    # Tesseract
+    import config as _cfg
+    tess_path = shutil.which("tesseract") or (
+        str(_cfg.TESSERACT_CMD) if Path(str(_cfg.TESSERACT_CMD)).exists() else None
+    )
+    tess_status = f"Detected [OK] ({tess_path})" if tess_path else "Not found"
+
+    # PyTorch + CUDA/MPS
+    try:
+        import torch
+        torch_ver   = torch.__version__
+        if torch.cuda.is_available():
+            device_name = torch.cuda.get_device_name(0)
+            accel_status = f"Detected [OK] (Device: {device_name})"
+            accel_label  = "CUDA"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            accel_status = "Detected [OK] (Apple Silicon)"
+            accel_label  = "MPS"
+        else:
+            accel_status = "Not available — running on CPU"
+            accel_label  = "GPU Acceleration"
+    except Exception:
+        torch_ver    = "Not installed"
+        accel_status = "Unknown"
+        accel_label  = "GPU Acceleration"
+
+    _log.info(f"OS: {os_name} {os_release}")
+    _log.info(f"Python: {sys.version}")
+    _log.info(f"Python Executable: {sys.executable}")
+    _log.info(f"Architecture: {arch}")
+    _log.info(f"Total RAM: {ram}")
+    _log.info(f"Tesseract OCR: {tess_status}")
+    _log.info(f"PyTorch Version: {torch_ver}")
+    _log.info(f"{accel_label}: {accel_status}")
+
 
 # Initialize a default logger instance
 logger = setup_logging()

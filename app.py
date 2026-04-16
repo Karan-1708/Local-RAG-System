@@ -24,7 +24,7 @@ from src.ingestion import load_documents
 from src.chunks import split_documents
 from src.vector_store import save_to_chroma, reset_database, delete_document
 from src.generation import query_rag
-from src.utils import logger, get_safe_path, ensure_directory, get_device, get_hardware_info
+from src.utils import logger, get_safe_path, ensure_directory, get_device, get_hardware_info, log_startup_info
 from src.ollama_utils import get_local_models, pull_new_model, is_ollama_running
 from src.api_config import FRONTIER_PROVIDERS
 import config
@@ -65,6 +65,10 @@ def save_persistent_state():
             json.dump(state, f)
     except Exception as e:
         logger.error(f"Failed to save state: {e}")
+
+if "startup_logged" not in st.session_state:
+    log_startup_info()
+    st.session_state.startup_logged = True
 
 if "state_loaded" not in st.session_state:
     persisted = load_persistent_state()

@@ -18,61 +18,76 @@ source .venv/bin/activate
 ```
 
 ### 2. Smart Dependency Installation
-Run the validator script to ensure your specific hardware (CUDA/MPS) is recognized:
+Run the validator script to ensure your specific hardware (CUDA/MPS) is recognized and optimized:
 ```powershell
 python install.py
 ```
 
 ### 3. Environment Configuration
-Create a `.env` file from the template and add your credentials:
+Create a `.env` file from the example and add your credentials:
 ```powershell
-cp env.template .env
+cp .env.example .env
 ```
 Key variables:
-*   `HF_TOKEN`: Required for faster model downloads from HuggingFace.
-*   `TESSERACT_CMD`: Path to your Tesseract executable (for image OCR).
+*   `INTERNAL_API_KEY`: Secret key required to access the REST API endpoints.
+*   `TESSERACT_CMD`: Absolute path to your Tesseract executable.
+
+---
+
+## ⚡ REST API Standards
+
+The project includes a high-performance **FastAPI** backend that follows industry standards.
+
+### Swagger Documentation
+Once the server is running, navigate to:
+`http://localhost:8000/docs`
+This provides an interactive UI to test the RAG pipeline programmatically.
+
+### Security (X-API-Key)
+All programmatic requests to `/api/v1/query` must include the following header:
+`X-API-Key: <your_internal_api_key>`
 
 ---
 
 ## 🏗️ Architecture Overview
 
-The system follows a modular RAG architecture:
+### 1. Unified Generation Factory (`src/generation.py`)
+*   Supports **Ollama**, **OpenAI**, **Gemini**, and **Anthropic** via a single `get_llm` interface.
+*   Implements **Streaming Generators** for real-time visual feedback.
 
-### 1. Ingestion Layer (`src/ingestion.py`, `src/chunks.py`)
-*   **Loaders:** Uses `Unstructured` to handle mixed file types.
-*   **Splitting:** `RecursiveCharacterTextSplitter` ensures semantic coherence.
+### 2. Conversational Memory
+*   State is managed in `app.py` and persisted in `session_state.json`.
+*   The last 5 message exchanges are injected into the RAG system prompt for context-aware follow-up.
 
-### 2. Storage Layer (`src/vector_store.py`)
-*   **ChromaDB:** Handles high-dimensional vector embeddings.
-*   **BM25:** Persists a keyword index for hybrid retrieval.
-*   **Persistence:** Session state is saved in `session_state.json`.
+### 3. Multi-Provider Evaluation (`src/evaluation.py`)
+*   Powered by **RAGAS**.
+*   Dynamically selects the evaluation model to match the generation provider (e.g., uses Claude to grade Claude).
 
-### 3. Retrieval Pipeline (`src/retrieval.py`, `src/generation.py`)
-*   **Hybrid Search:** Performs parallel Vector + BM25 search.
-*   **Fusion:** Uses **Reciprocal Rank Fusion (RRF)** to combine results.
-*   **Re-ranking:** Employs a `Cross-Encoder` (`ms-marco-MiniLM-L-6-v2`) to prune irrelevant context.
+---
 
-### 4. Safety & Privacy (`src/privacy.py`)
-*   **Redaction:** Microsoft Presidio masks PII before any external API calls or LLM processing.
-*   **Injection Guard:** Regex-based scanner in `generation.py` filters malicious document chunks.
+## 🐳 Docker Deployment
+
+To run the full suite (Frontend + Backend) in an isolated container:
+
+```bash
+docker-compose up --build
+```
+*   **Persistent Volumes:** Uploaded files and database indexes are saved to your local disk, so they survive container restarts.
+*   **Host Communication:** The container is configured to talk to your host's Ollama instance via `host.docker.internal`.
 
 ---
 
 ## 🧪 Development Workflow
 
 ### Testing Hardware Acceleration
-Run the included check script to verify GPU status:
 ```powershell
 python check_gpu.py
 ```
 
-### Running the App
+### Running the Full Suite Manually
 ```powershell
+# Terminal 1: Backend
+uvicorn api:app --host 0.0.0.0 --port 8000
+# Terminal 2: Frontend
 streamlit run app.py
 ```
-
-### Contribution Guidelines
-1.  **Branching:** Create a feature branch (`feat/your-feature`).
-2.  **Linting:** Follow PEP8 standards.
-3.  **Efficiency:** Use `@st.cache_resource` for any heavy ML model loading.
-4.  **Logging:** Use the unified logger from `src.utils`.
