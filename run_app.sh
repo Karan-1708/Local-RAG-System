@@ -89,5 +89,9 @@ if [ ! -f ".env" ]; then
 fi
 
 # 6. Launch
-echo "[SUCCESS] Starting Local RAG..."
+echo "[SUCCESS] Starting Local RAG Suite..."
+echo "[INFO] Launching API Server (Swagger at http://localhost:8000/docs)..."
+uvicorn api:app --host 0.0.0.0 --port 8000 > api.log 2>&1 &
+
+echo "[INFO] Launching Streamlit UI..."
 streamlit run app.py

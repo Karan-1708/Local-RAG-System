@@ -1,0 +1,19 @@
+services:
+  local-rag:
+    build: .
+    container_name: local-rag-system
+    ports:
+      - "8501:8501" # Streamlit
+      - "8000:8000" # FastAPI (Swagger)
+    volumes:
+      # Persist data across container restarts
+      - ./data:/app/data
+      - ./chroma_db:/app/chroma_db
+      - ./session_state.json:/app/session_state.json
+      - ./.env:/app/.env
+    environment:
+      # Allow the container to communicate with Ollama running on the host machine
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

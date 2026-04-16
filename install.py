@@ -113,7 +113,7 @@ def setup():
     
     # 4. Step-by-Step Installation
     print("\nStep 1: Installing Core Frameworks...")
-    run_command("streamlit nest_asyncio ollama python-dotenv fpdf2")
+    run_command("streamlit nest_asyncio ollama python-dotenv fpdf2 fastapi uvicorn")
 
     print("\nStep 2: Installing hardware-optimized ML core...")
     if hardware == 'cuda':

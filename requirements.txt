@@ -6,6 +6,8 @@
 streamlit
 nest_asyncio
 ollama
+fastapi
+uvicorn
 
 # --- LangChain Ecosystem ---
 langchain
